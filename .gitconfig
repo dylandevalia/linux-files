@@ -1,0 +1,9 @@
+[user]
+	email = dylandevalia@googlemail.com
+	name = Dylan Devalia
+[alias]
+	co = checkout
+	br = branch
+	ls = status
+	pop = stash pop
+	cp = cherry-pick
