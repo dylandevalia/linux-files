@@ -124,9 +124,6 @@ PURE_GIT_UP_ARROW="↑"
 PURE_GIT_STASH_SYMBOL="≡"
 zstyle :prompt:pure:prompt:success color green
 
-# Percy
-export PERCY_TOKEN=06c199b0049c791126d248ab1588a75c4dc83b4b874fc8f98538eb0fbf966d24
-
 # X server
 export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2; exit;}'):0.0
 
