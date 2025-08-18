@@ -134,7 +134,11 @@ export NVM_DIR="$HOME/.nvm"
 
 # Percy
 export PERCY_TOKEN=06c199b0049c791126d248ab1588a75c4dc83b4b874fc8f98538eb0fbf966d24
-
+# Load Percy token from ~/.percy_env if available. Store your token in that file as:
+# export PERCY_TOKEN=your_token_here
+if [ -f "$HOME/.percy_env" ]; then
+    source "$HOME/.percy_env"
+fi
 # X server
 export DISPLAY=$(cat /etc/resolv.conf | grep nameserver | awk '{print $2; exit;}'):0.0
 
