@@ -1,0 +1,123 @@
+# ease of use
+
+alias q="exit"
+alias c="clear"
+mkcd() {
+        mkdir "$1"
+        cd "$1"
+}
+alias start="nvm use && yarn start"
+
+# dotfiles
+
+alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
+
+
+# git
+
+alias gls="git status"
+alias gbr="git branch"
+alias gco="git checkout"
+alias grom="git remote update; git reset --hard origin/master"
+alias gpb="git push --set-upstream origin $(git rev-parse --symbolic-full-name --abbrev-ref HEAD)"
+gcoo() {
+        git remote update
+        git checkout origin/"$1" --track
+}
+rebase() {
+        git fetch
+        git add -A
+        git stash
+        git rebase origin/"$1"
+        git pop
+}
+
+# misc
+
+alias code="/mnt/c/Program\ Files/Microsoft\ VS\ Code/bin/code . &"
+alias explorer="/mnt/c/Windows/explorer.exe ."
+
+old_quote () {
+  eyes="bdgpstwy"
+  rnd=$[ ($RANDOM % 3) ]
+  cowfiles=("apt" "bud-frogs" "bunny" "default" "duck" "elephant" "flaming-sheep" "koala" "moose" "pony-smaller" "sheep" "suse" "three-eyes" "unipony-smaller" "www")
+
+  case "$rnd" in
+    0)
+      color="\033[1;33m" # yellow
+      file=~/.quotes/simpsonsChalkboards
+      ;;
+    1)
+      color="\033[1;36m" # light cyan
+      file=~/.quotes/futuramaCaptions
+      ;;
+    2)
+      color="\033[1;32m" # light green
+      file=~/.quotes/minecraftSplashes
+      ;;
+    *)
+      color="\033[1;37m" # white
+      file=~/.quotes/error
+  esac
+
+  if [ $((RANDOM % 2)) -eq 0 ]; then
+    command="cowsay"
+  else
+    command="cowthink"
+  fi
+
+  cowfile="/usr/share/cowsay/cows/${cowfiles[ $((RANDOM % ${#cowfiles[@]})) ]}.cow"
+
+  echo -e "${color}"
+  shuf -n 1 "$file" | "$command" -f "$cowfile" -${eyes:$(( $RANDOM % ${#eyes} )):1}
+  echo -e "\033[0m"
+}
+
+quote () {
+  # All possible cow eye styles
+  eyes="bdgpstwy"
+
+  # Array of quotes and colors
+  declare -A quote_sources
+  quote_sources[1]="\033[1;33m:${HOME}/.quotes/simpsonsChalkboards" # yellow
+  quote_sources[2]="\033[1;36m:${HOME}/.quotes/futuramaCaptions"    # light cyan
+  quote_sources[3]="\033[1;32m:${HOME}/.quotes/minecraftSplashes"   # light green
+
+  # Pick a random source
+  rnd=$(( RANDOM % ${#quote_sources[@]} + 1 ))
+  source_info=${quote_sources[$rnd]}
+
+  # Split the source_info string into color and file path
+  color=$(echo "$source_info" | cut -d ':' -f 1)
+  file=$(echo "$source_info" | cut -d ':' -f 2)
+
+  # Fallback in case the quote file doesn't exist
+  if [ ! -f "$file" ]; then
+    color="\033[1;37m" # white
+    file=~/.quotes/error
+  fi
+
+  # 50/50 chance to use cowsay or cowthink
+  if [ $((RANDOM % 2)) -eq 0 ]; then
+    command="cowsay"
+  else
+    command="cowthink"
+  fi
+
+  # Select a cowfile out of these selected options
+  cowfiles=("alpaca" "bong" "bud-frogs" "bunny" "cower" "default" "dragon" "elephant" "eyes" "flaming-sheep" "fox" "kitty" "koala" "llama" "moofasa" "moose" "sheep" "small" "stegosaurus" "three-eyes" "tux" "udder" "www")
+  random_index=$(( RANDOM % ${#cowfiles[@]} + 1 )) # zsh use 1-based indexing...
+  cowfile="/usr/share/cowsay/cows/${cowfiles[ $random_index ]}.cow"
+
+  # Check if cowsay or cowthink are installed
+  if ! command -v "$command" &> /dev/null; then
+    echo "Error: The command '$command' could not be found. Is cowsay installed?" >&2
+    return 1
+  fi
+
+  # Print the final result
+  echo -e "${color}"
+  shuf -n 1 "$file" | "$command" -f "$cowfile" -${eyes:$(( RANDOM % ${#eyes} + 1 )):1}
+  echo -e "\033[0m"
+}
+
