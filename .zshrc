@@ -89,6 +89,12 @@ plugins=(
 
 source $ZSH/oh-my-zsh.sh
 
+# fzf
+source <(fzf --zsh)
+
+# zoxide
+eval "$(zoxide init zsh --cmd cd)"
+
 # User configuration
 
 # export MANPATH="/usr/local/man:$MANPATH"
