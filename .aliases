@@ -12,7 +12,6 @@ alias start="nvm use && yarn start"
 
 alias config='/usr/bin/git --git-dir=$HOME/.cfg/ --work-tree=$HOME'
 
-
 # git
 
 alias gls="git status"
@@ -33,9 +32,6 @@ rebase() {
 }
 
 # misc
-
-alias code="/mnt/c/Program\ Files/Microsoft\ VS\ Code/bin/code . &"
-alias explorer="/mnt/c/Windows/explorer.exe ."
 
 old_quote () {
   eyes="bdgpstwy"
