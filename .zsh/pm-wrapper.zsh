@@ -1,8 +1,30 @@
 #!/usr/bin/env zsh
 
-#######################################
-# pm - Universal Package Manager Wrapper
-#######################################
+# ==============================================================================
+# pm - Universal Package Manager Wrapper (Zsh Optimized)
+# ------------------------------------------------------------------------------
+# A context-aware wrapper that intelligently detects and executes commands 
+# across pnpm, bun, yarn, and npm.
+#
+# FEATURES:
+#   - Root Discovery: Recursively walks up directories to find project roots.
+#   - Command Mapping: Normalizes 'add', 'rm', and 'up' across all managers.
+#   - Safety First: Prompts to install if node_modules are missing.
+#   - Script Detection: Runs 'package.json' scripts without needing 'run'.
+#   - Nuke Mode: A "panic button" to clean and fresh-install dependencies.
+#   - Autocompletion: Deep integration with Zsh to suggest scripts and commands.
+#
+# USAGE:
+#   pm                -> Detects manager and runs default install
+#   pm <command>      -> Runs command (eg. pm dev, pm test)
+#   pm add <pkg>      -> Adds a dependency using the correct syntax
+#   pm up             -> Interactive update (where supported)
+#   pm nuke           -> Deletes node_modules/lockfiles and reinstalls
+#
+# COMPATIBILITY:
+#   Optimized for Zsh on macOS and Linux. Requires no external dependencies 
+#   like 'jq' (uses native 'sed' and 'grep').
+# ==============================================================================
 
 pm() {
   local PM=""
