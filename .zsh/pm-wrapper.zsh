@@ -10,115 +10,94 @@ pm() {
   local ROOT_DIR="$PWD"
   local FALLBACK_PM=""
   local FALLBACK_ROOT=""
-  
-  # Colors
-  local CYAN='\033[0;36m'
-  local GREEN='\033[0;32m'
-  local YELLOW='\033[1;33m'
-  local BLUE='\033[1;34m'
-  local RED='\033[0;31m'
-  local NC='\033[0m'
 
-  # 1. Root Discovery: Look upwards for a lockfile or package.json
+  # Colors (using zsh associative array for cleaner access)
+  typeset -A colors=(
+    [cyan]=$'\e[0;36m' [green]=$'\e[0;32m' [yellow]=$'\e[1;33m'
+    [blue]=$'\e[1;34m' [red]=$'\e[0;31m' [reset]=$'\e[0m'
+  )
+
+  # 1. Improved Root Discovery (Recursive Upward)
   while [[ "$ROOT_DIR" != "/" ]]; do
-    if [[ -f "$ROOT_DIR/package-lock.json" ]]; then
-      PM="npm"; break
-    elif [[ -f "$ROOT_DIR/yarn.lock" ]]; then
-      PM="yarn"; break
-    elif [[ -f "$ROOT_DIR/pnpm-lock.yaml" ]]; then
-      PM="pnpm"; break
-    elif [[ -f "$ROOT_DIR/bun.lockb" || -f "$ROOT_DIR/bun.lock" ]]; then
-      PM="bun"; break
+    if [[ -f "$ROOT_DIR/pnpm-lock.yaml" ]]; then PM="pnpm"; break
+    elif [[ -f "$ROOT_DIR/bun.lockb" || -f "$ROOT_DIR/bun.lock" ]]; then PM="bun"; break
+    elif [[ -f "$ROOT_DIR/yarn.lock" ]]; then PM="yarn"; break
+    elif [[ -f "$ROOT_DIR/package-lock.json" ]]; then PM="npm"; break
     elif [[ -f "$ROOT_DIR/package.json" ]]; then
       FALLBACK_PM="npm"
       FALLBACK_ROOT="$ROOT_DIR"
     fi
-    ROOT_DIR="$(dirname "$ROOT_DIR")"
+    ROOT_DIR="${ROOT_DIR:h}" # Faster Zsh-native 'dirname'
   done
 
   # Fallback logic
   if [[ -z "$PM" ]]; then
     if [[ -n "$FALLBACK_ROOT" ]]; then
-      PM="$FALLBACK_PM"
-      ROOT_DIR="$FALLBACK_ROOT"
+      PM="$FALLBACK_PM"; ROOT_DIR="$FALLBACK_ROOT"
     else
-      ROOT_DIR="$PWD"
-      echo -e "${YELLOW}⚠ No project root found.${NC}"
+      echo -e "${colors[yellow]}⚠ No project root found.${colors[reset]}"
       echo "1) npm  2) yarn  3) pnpm  4) bun  5) quit"
-      read -k 1 "choice?Select a manager: "
+      read -k 1 "choice?Select: "
       echo ""
       case $choice in
         1) PM="npm" ;; 2) PM="yarn" ;; 3) PM="pnpm" ;; 4) PM="bun" ;; *) return 0 ;;
       esac
+      ROOT_DIR="$PWD"
     fi
   fi
 
-  # 2. Env Check
-  if ! command -v $PM &> /dev/null; then
-    echo -e "${RED}✘ Error: ${PM} is not installed.${NC}"
-    return 1
-  fi
-
-  # 3. Version & Context Display
-  local PM_VER=$($PM --version)
-  echo -e "${BLUE}⚡ ${PM}${NC} (${PM_VER}) @ ${CYAN}${ROOT_DIR}${NC}"
-
-  # 4. Handle Default Command
+  # 2. Command Mapping (Consistency across managers)
   if [[ $# -eq 0 ]]; then
-    COMMAND="i"
+    COMMAND="install"
   else
     COMMAND=$1
     shift
   fi
 
-  # 5. Dependency Safety Check
-  if [[ ! -d "$ROOT_DIR/node_modules" && ! "$COMMAND" =~ ^(i|install|nuke)$ ]]; then
-    echo -e "${YELLOW}⚠ node_modules missing at root.${NC}"
+  # 3. Monorepo-Aware Safety Check
+  # Checks if node_modules exists in current OR root directory
+  if [[ ! -d "node_modules" && ! -d "$ROOT_DIR/node_modules" && ! "$COMMAND" =~ ^(i|install|nuke|add)$ ]]; then
+    echo -e "${colors[yellow]}⚠ node_modules missing.${colors[reset]}"
     read -q "re?Run '$PM install' now? (y/n) "
     echo ""
     [[ $re == "y" ]] && $PM install || return 1
   fi
 
-  # 6. Execution Logic
+  # 4. Context Header
+  echo -e "${colors[blue]}⚡ ${PM}${colors[reset]} @ ${colors[cyan]}${ROOT_DIR}${colors[reset]}"
+
+  # 5. Optimized Execution Logic
   case $COMMAND in
-    i|install)
-      echo -e "📦 ${GREEN}Installing...${NC}"
-      $PM install "$@"
-      ;;
+    i|install) $PM install "$@" ;;
     add)
-      echo -e "➕ ${GREEN}Adding:${NC} ${CYAN}$@${NC}"
-      [[ "$PM" == "npm" ]] && npm install "$@" || $PM add "$@"
-      ;;
+      [[ "$PM" == "npm" ]] && npm install "$@" || $PM add "$@" ;;
     rm|remove|uninstall)
-      echo -e "➖ ${RED}Removing:${NC} ${CYAN}$@${NC}"
-      [[ "$PM" == "npm" ]] && npm uninstall "$@" || $PM remove "$@"
-      ;;
+      [[ "$PM" == "npm" ]] && npm uninstall "$@" || $PM remove "$@" ;;
     up|upgrade|update)
-      echo -e "🆙 ${GREEN}Updating...${NC}"
       case $PM in
         npm)  npm update "$@" ;;
         yarn) yarn upgrade-interactive "$@" ;;
         pnpm) pnpm update --interactive "$@" ;;
         bun)  bun update "$@" ;;
-      esac
-      ;;
+      esac ;;
     nuke)
-      echo -e "${RED}☢ NUKING root dependencies...${NC}"
-      (
-        cd "$ROOT_DIR"
-        rm -rf node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock
-        echo -e "${GREEN}✓ Clean slate. Reinstalling...${NC}"
-        $PM install
-      )
-      ;;
+      echo -e "${colors[red]}☢ Nuking dependencies...${colors[reset]}"
+      # Only delete local node_modules and the specific root lockfile
+      rm -rf node_modules
+      [[ -d "$ROOT_DIR/node_modules" ]] && rm -rf "$ROOT_DIR/node_modules"
+      $PM install ;;
     *)
+      # Check if it's a script in package.json
       if [[ -f "$ROOT_DIR/package.json" ]] && grep -q "\"$COMMAND\":" "$ROOT_DIR/package.json"; then
-        echo -e "🚀 ${GREEN}Script:${NC} ${BLUE}$COMMAND${NC}"
-        [[ "$PM" == "npm" || "$PM" == "pnpm" ]] && $PM run $COMMAND "$@" || $PM $COMMAND "$@"
+        # pnpm/bun/yarn don't strictly need 'run', but npm/pnpm benefit from it for clarity
+        if [[ "$PM" == "npm" || "$PM" == "pnpm" ]]; then
+          $PM run $COMMAND "$@"
+        else
+          $PM $COMMAND "$@"
+        fi
       else
         $PM $COMMAND "$@"
-      fi
-      ;;
+      fi ;;
   esac
 }
 
@@ -132,7 +111,7 @@ _pm_completion() {
   
   while [[ "$ROOT_DIR" != "/" ]]; do
     [[ -f "$ROOT_DIR/package.json" ]] && break
-    ROOT_DIR="$(dirname "$ROOT_DIR")"
+    ROOT_DIR="${ROOT_DIR:h}"
   done
 
   subcommands=(
@@ -144,7 +123,8 @@ _pm_completion() {
   )
 
   if [[ -f "$ROOT_DIR/package.json" ]]; then
-    scripts=($(sed -n '/"scripts": {/,/}/p' "$ROOT_DIR/package.json" | grep -oP '(?<=")\w+(?="(?=\s*:\s*"))'))
+    # Portable sed to extract keys from "scripts": { ... }
+    scripts=($(sed -n '/"scripts": {/,/}/p' "$ROOT_DIR/package.json" | sed -E 's/^[[:space:]]*"([^"]+)":.*/\1/' | grep -v "scripts"))
   fi
 
   _alternative \
