@@ -44,7 +44,7 @@ pm() {
   # 1. Environment & Intent Detection
   [[ -t 0 ]] && IS_INTERACTIVE=1
   [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && ASSUME_YES=1
-  (( ! IS_INTERACTIVE )) && ASSUME_YES=1 # Auto-yes in non-TTY
+  (( ! IS_INTERACTIVE )) && ASSUME_YES=1 
 
   # 2. Global Flag Parsing
   for arg in "$@"; do
@@ -116,8 +116,6 @@ pm() {
     local bin="$1"; shift
     if ! command -v "$bin" &> /dev/null; then
       if (( ASSUME_YES )); then
-        # If we can't prompt and can't install, we must fail.
-        # But if we can install (even in CI), we do.
         _pm_log "bootstrap" "$@"
         "$@" || { print -P -u2 "%F{red}Error:%f Failed to auto-install $bin."; return 1; }
       elif (( IS_INTERACTIVE )); then
@@ -130,13 +128,11 @@ pm() {
     fi
   }
 
-  # 4. Toolchain Bootstrap (Sanitized Logic)
+  # 4. Toolchain Bootstrap
   if ! command -v "$PM" &> /dev/null; then
     if [[ "$PM" == "npm" ]]; then
        print -P -u2 "%F{red}Error:%f npm not found."; return 1
     fi
-
-    # Ensure npm exists to bootstrap others
     command -v npm &>/dev/null || { print -P -u2 "%F{red}Error:%f npm missing; cannot bootstrap $PM."; return 1; }
     
     if [[ "$PM" == "yarn" ]]; then
@@ -202,7 +198,8 @@ pm() {
         read confirm
         [[ "$confirm" != "$proj" ]] && { print -P "\nAborted."; return 1; }
       fi
-      (cd "$ROOT_DIR" && rm -rf -- node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock && command "$PM" install) ;;
+      (cd "$ROOT_DIR" && rm -rf -- node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock)
+      _pm_run install ;;
 
     doctor)
       local pm_v=$(command "$PM" --version 2>/dev/null || echo "not found")
@@ -236,7 +233,7 @@ pm() {
 }
 
 _pm_help() {
-  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v$VERSION)"
+  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v3.6)"
   echo "Usage: pm [options] <command> [args]"
   echo ""
   echo "Options:"
@@ -255,13 +252,10 @@ _pm_help() {
   echo "  doctor         Show diagnostics & selection reason"
 }
 
-# --- Autocompletion ---
 _pm_completion() {
   emulate -L zsh
   local -a subcommands scripts
-  local ROOT_DIR 
-  local PKG_DIR="$PWD" 
-  local found_pkg=0
+  local PKG_DIR="$PWD" found_pkg=0
   local current="$PWD"
   
   while [[ "$current" != "/" ]]; do
@@ -270,13 +264,8 @@ _pm_completion() {
   done
   
   subcommands=(
-    'i:Install dependencies' 'install:Install dependencies'
-    'add:Add package'
-    'rm:Remove package' 'remove:Remove package' 'uninstall:Remove package'
-    'up:Update packages' 'update:Update packages' 'upgrade:Update packages'
-    'x:Execute binary' 'exec:Execute binary'
-    'nuke:Clean reinstall'
-    'doctor:Diagnostics'
+    'i:Install' 'install:Install' 'add:Add' 'rm:Remove' 'remove:Remove'
+    'up:Update' 'update:Update' 'x:Execute' 'exec:Execute' 'nuke:Clean' 'doctor:Doctor'
   )
 
   if [[ -f "$PKG_DIR/package.json" ]]; then
