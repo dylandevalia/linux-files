@@ -220,6 +220,12 @@ pm() {
           else _pm_run add "${final_args[@]}"; fi ;;
       esac ;;
 
+    rm|remove|uninstall)
+      case $PM in
+        npm) _pm_run uninstall "${ARGS[@]}" ;;
+        *) _pm_run remove "${ARGS[@]}" ;;
+      esac ;;
+
     up|update|upgrade)
       # Prefer ncu (npm-check-updates) for interactive upgrades when available
       if ! command -v ncu &>/dev/null; then
