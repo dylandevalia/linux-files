@@ -1,5 +1,5 @@
 # ==============================================================================
-# pm - Universal Package Manager Wrapper (v3.4)
+# pm - Universal Package Manager Wrapper (v3.5)
 # ------------------------------------------------------------------------------
 # A deterministic, context-aware utility to unify npm, pnpm, yarn, and bun.
 #
@@ -31,25 +31,27 @@ pm() {
   emulate -L zsh
   setopt local_options no_unset pipefail
 
-  local VERSION="3.4"
+  local VERSION="3.5"
   local PM="" COMMAND="" ROOT_DIR="$PWD" PKG_DIR="$PWD"
   local ARGS=()
-  local FORCE_YES=0
+  local ASSUME_YES=0
+  local IS_INTERACTIVE=0
   local VERBOSE=0
   local PARSING_FLAGS=1
   local SELECTION_REASON="default (npm)"
   local -a ALL_LOCKS_FOUND=()
 
-  # 1. CI & TTY Detection
-  [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && FORCE_YES=1
-  [[ ! -t 0 ]] && FORCE_YES=1 
+  # 1. Environment & Intent Detection
+  [[ -t 0 ]] && IS_INTERACTIVE=1
+  [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && ASSUME_YES=1
+  (( ! IS_INTERACTIVE )) && ASSUME_YES=1 # Auto-yes in non-TTY
 
   # 2. Global Flag Parsing
   for arg in "$@"; do
     if (( PARSING_FLAGS )); then
       case $arg in
         --) PARSING_FLAGS=0 ;;
-        -y|--yes) FORCE_YES=1 ;;
+        -y|--yes) ASSUME_YES=1 ;;
         -v|--verbose) VERBOSE=1 ;;
         -V|--version) echo "pm wrapper v$VERSION"; return 0 ;;
         -h|--help|help) _pm_help; return 0 ;;
@@ -60,15 +62,13 @@ pm() {
     fi
   done
 
-  # 3. Context Discovery (Climbing to Root)
+  # 3. Context Discovery
   local current="$PWD"
   local found_pkg=0
 
   while [[ "$current" != "/" ]]; do
-    # Nearest package.json defines the script context
     [[ -f "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
     
-    # Priority-based PM detection
     if [[ -z "$PM" ]]; then
       if [[ -f "$current/pnpm-lock.yaml" ]]; then 
         PM="pnpm"; SELECTION_REASON="lockfile (pnpm-lock.yaml) at $current"
@@ -82,24 +82,20 @@ pm() {
       [[ -n "$PM" ]] && ROOT_DIR="$current"
     fi
 
-    # Diagnostics gathering
     [[ -f "$current/pnpm-lock.yaml" ]] && ALL_LOCKS_FOUND+=("pnpm@$current")
     [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && ALL_LOCKS_FOUND+=("bun@$current")
     [[ -f "$current/yarn.lock" ]] && ALL_LOCKS_FOUND+=("yarn@$current")
     [[ -f "$current/package-lock.json" ]] && ALL_LOCKS_FOUND+=("npm@$current")
     
-    # Git boundary fallback
     if [[ -d "$current/.git" && -z "$PM" ]]; then 
-      ROOT_DIR="$current"
-      SELECTION_REASON="boundary (.git) at $current"
-      break
+      ROOT_DIR="$current"; SELECTION_REASON="boundary (.git) at $current"; break
     fi
     current="${current:h}"
   done
 
-  # Canonicalize Paths
-  ROOT_DIR=$ROOT_DIR:A
-  local HOME_REAL=$HOME:A
+  # Physical Path Canonicalization
+  ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
+  local HOME_REAL="$(cd "$HOME" && pwd -P)"
 
   COMMAND=${ARGS[1]:-install}
   ARGS=("${ARGS[@]:1}") 
@@ -108,7 +104,6 @@ pm() {
   # --- Internal Helpers ---
 
   _pm_log() {
-    # Log if verbose is active OR if interactive and performing a mutation
     if (( VERBOSE )) || [[ -t 1 && "$COMMAND" =~ ^(install|nuke|add|rm|remove|uninstall)$ ]]; then
       print -P "%F{blue}Executing:%f %F{cyan}(cd ${(qq)ROOT_DIR} && $1 ${(qq)@:2})%f"
     fi
@@ -120,28 +115,37 @@ pm() {
   _pm_ensure() {
     local bin="$1"; shift
     if ! command -v "$bin" &> /dev/null; then
-      if (( FORCE_YES )); then
-        # If FORCE_YES is set, attempt the install command provided in the args
-        # or fail fast if we aren't in a TTY.
-        [[ ! -t 0 ]] && { print -P -u2 "%F{red}Error:%f '$bin' missing. Non-interactive install aborted."; return 1; }
-        "$@" 
-        return $?
+      if (( ASSUME_YES )); then
+        # If we can't prompt and can't install, we must fail.
+        # But if we can install (even in CI), we do.
+        _pm_log "bootstrap" "$@"
+        "$@" || { print -P -u2 "%F{red}Error:%f Failed to auto-install $bin."; return 1; }
+      elif (( IS_INTERACTIVE )); then
+        read -q "choice?Install $bin now? (y/n) " || { echo; return 1; }
+        echo; "$@"
+      else
+        print -P -u2 "%F{red}Error:%f '$bin' missing and no terminal available to prompt."
+        return 1
       fi
-      read -q "choice?Install $bin now? (y/n) " || { echo; return 1; }
-      echo; "$@" 
     fi
   }
 
-  # 4. Toolchain Bootstrap
+  # 4. Toolchain Bootstrap (Sanitized Logic)
   if ! command -v "$PM" &> /dev/null; then
-    case $PM in
-      npm) print -P -u2 "%F{red}Error:%f npm not found."; return 1 ;;
-      yarn|pnpm) 
-        command -v npm &>/dev/null || { print -P -u2 "%F{red}Error:%f npm missing; cannot bootstrap $PM."; return 1; }
-        [[ "$PM" == "yarn" ]] && _pm_ensure yarn npm install -g yarn || _pm_ensure pnpm npm install -g pnpm || return 1
-        ;;
-      bun) _pm_ensure bun bash -lc 'curl -fsSL https://bun.sh/install | bash' || return 1 ;;
-    esac
+    if [[ "$PM" == "npm" ]]; then
+       print -P -u2 "%F{red}Error:%f npm not found."; return 1
+    fi
+
+    # Ensure npm exists to bootstrap others
+    command -v npm &>/dev/null || { print -P -u2 "%F{red}Error:%f npm missing; cannot bootstrap $PM."; return 1; }
+    
+    if [[ "$PM" == "yarn" ]]; then
+      _pm_ensure yarn npm install -g yarn || return 1
+    elif [[ "$PM" == "pnpm" ]]; then
+      _pm_ensure pnpm npm install -g pnpm || return 1
+    elif [[ "$PM" == "bun" ]]; then
+      _pm_ensure bun bash -lc 'curl -fsSL https://bun.sh/install | bash' || return 1
+    fi
   fi
 
   # 5. Command Routing
@@ -191,7 +195,7 @@ pm() {
 
     nuke)
       [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$HOME_REAL" ]] && { print -P -u2 "%F{red}Error:%f Nuke refused on root/home."; return 1; }
-      if (( ! FORCE_YES )); then
+      if (( ! ASSUME_YES )); then
         local proj=$(basename "$ROOT_DIR")
         print -P "%F{red}☢ DANGER:%f Wipe node_modules & locks in $ROOT_DIR?"
         echo -n "Type '$proj' to confirm: "
