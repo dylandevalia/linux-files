@@ -27,23 +27,19 @@
 # ==============================================================================
 
 pm() {
+	# Standardize environment for the duration of this function
+	emulate -L zsh
+	setopt local_options no_unset pipe_fail
+
 	local PM="" COMMAND="" ROOT_DIR="$PWD" PKG_DIR="$PWD"
 	local ARGS=()
 	local FORCE_YES=false
 	local PARSING_FLAGS=true
+
+	# CI awareness: automatically bypass prompts in CI environments
 	[[ "$CI" == "1" ]] && FORCE_YES=true
 
-	# Colors
-	typeset -A c=(
-		[cyan]=$'\e[0;36m'
-		[green]=$'\e[0;32m'
-		[yellow]=$'\e[1;33m'
-		[blue]=$'\e[1;34m'
-		[red]=$'\e[0;31m'
-		[reset]=$'\e[0m'
-	)
-
-	# 1. Parse Global Flags (Stop at --)
+	# 1. Global Flag Parsing (Strictly before the command or '--')
 	for arg in "$@"; do
 		if [[ "$PARSING_FLAGS" == true ]]; then
 			case $arg in
@@ -60,96 +56,109 @@ pm() {
 		fi
 	done
 
-	# 2. Advanced Root & Manager Detection
+	# 2. Root & Manager Detection logic
+	# Finds the nearest package.json for scripts, and the nearest lockfile for PM choice.
 	local current="$PWD"
 	local found_pkg=false
 	local locks_found=()
 
 	while [[ "$current" != "/" ]]; do
+		# Track the nearest package.json for script context
 		[[ -f "$current/package.json" && "$found_pkg" == false ]] && {
 			PKG_DIR="$current"
 			found_pkg=true
 		}
 
-		# Check for all possible lockfiles at this level
-		[[ -f "$current/pnpm-lock.yaml" ]] && locks_found+=("pnpm")
-		[[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && locks_found+=("bun")
-		[[ -f "$current/yarn.lock" ]] && locks_found+=("yarn")
-		[[ -f "$current/package-lock.json" ]] && locks_found+=("npm")
+		# Identify lockfiles at this directory level
+		local current_locks=()
+		[[ -f "$current/pnpm-lock.yaml" ]] && current_locks+=("pnpm")
+		[[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && current_locks+=("bun")
+		[[ -f "$current/yarn.lock" ]] && current_locks+=("yarn")
+		[[ -f "$current/package-lock.json" ]] && current_locks+=("npm")
 
-		if [[ ${#locks_found[@]} -gt 0 ]]; then
-			PM="${locks_found[1]}" # Pick the first one found deterministically
+		if [[ ${#current_locks[@]} -gt 0 ]]; then
+			locks_found=("${current_locks[@]}")
+			PM="${locks_found[1]}" # Deterministic pick based on check order
 			ROOT_DIR="$current"
 			break
 		elif [[ -d "$current/.git" ]]; then
-			ROOT_DIR="$current"
+			ROOT_DIR="$current" # Stop climbing at git root
 			break
 		fi
 		current="${current:h}"
 	done
 
+	# Extract Command and slice remaining ARGS safely using Zsh array syntax
 	COMMAND=${ARGS[1]:-install}
-	shift ARGS 2>/dev/null
+	ARGS=("${ARGS[@]:1}")
 
-	# Fallback & Boundary Warnings
+	# Default to npm if no lockfile is present
 	[[ -z "$PM" ]] && PM="npm"
 
+	# 3. Environment Sanity Checks
 	if [[ ! -f "$ROOT_DIR/package.json" && ! -f "$PKG_DIR/package.json" ]]; then
 		if [[ ! "$COMMAND" =~ ^(init|create|doctor)$ ]]; then
-			echo -e "${c[yellow]}⚠ No package.json found. Is this a JS project?${c[reset]}"
+			print -P -u2 "%F{yellow}⚠ No package.json found. Functioning in generic mode.%f"
 		fi
 	fi
 
-	# Conflict Warning
+	# Warn if multiple lockfiles are polluting the same directory
 	if [[ ${#locks_found[@]} -gt 1 && "$FORCE_YES" == false ]]; then
-		echo -e "${c[yellow]}⚠ Multiple lockfiles found at root: ${locks_found[*]}.${c[reset]}"
-		echo -e "${c[yellow]}Using ${PM} by default.${c[reset]}"
+		print -P -u2 "%F{yellow}⚠ Conflict: Multiple lockfiles found: ${locks_found[*]}.%f"
+		print -P -u2 "%F{yellow}Defaulting to ${PM}.%f"
 	fi
 
-	# Helper: Execute via PM safely
+	# --- Internal Helpers ---
+
+	# Helper: Execute using the detected Package Manager (always at root)
 	_pm_run() {
-		echo -e "${c[blue]}Executing:${c[reset]} ${c[cyan]}(cd \"$ROOT_DIR\" && $PM \"$@\") ${c[reset]}"
+		print -P "%F{blue}Executing:%f %F{cyan}(cd \"$ROOT_DIR\" && $PM \"$@\")%f"
 		(cd "$ROOT_DIR" && command "$PM" "$@")
 	}
 
-	# Helper: Execute raw command safely (No PM prefix)
+	# Helper: Execute a raw command without PM prefix (always at root)
 	_pm_cmd() {
-		echo -e "${c[blue]}Executing:${c[reset]} ${c[cyan]}(cd \"$ROOT_DIR\" && \"$@\") ${c[reset]}"
+		print -P "%F{blue}Executing:%f %F{cyan}(cd \"$ROOT_DIR\" && \"$@\")%f"
 		(cd "$ROOT_DIR" && command "$@")
 	}
 
-	# Helper: Tool Ensure
+	# Helper: Verify tool existence and offer installation safely (no eval)
 	_pm_ensure() {
-		if ! command -v "$1" &>/dev/null; then
+		local bin="$1"
+		shift
+		if ! command -v "$bin" &>/dev/null; then
 			if [[ "$FORCE_YES" == true ]]; then
-				echo -e "${c[red]}Error: $1 missing (CI/Non-interactive).${c[reset]}"
+				print -P -u2 "%F{red}Error: Required tool '$bin' missing.%f"
 				return 1
 			fi
-			read -q "choice?Install $1 via '$2'? (y/n) " && echo "" && eval "$2" || return 1
+			read -q "choice?Install $bin now? (y/n) " || {
+				echo
+				return 1
+			}
+			echo
+			"$@" # Directly execute the installation array
 		fi
 		return 0
 	}
 
-	# 3. PM Installation Check
-	local pm_install_cmd=""
+	# 4. Toolchain Validation
 	case $PM in
-	npm) pm_install_cmd="echo 'Please install Node.js manually.'" ;;
-	yarn) pm_install_cmd="npm install -g yarn" ;;
-	pnpm) pm_install_cmd="npm install -g pnpm" ;;
-	bun) pm_install_cmd="curl -fsSL https://bun.sh/install | bash" ;;
+	npm) _pm_ensure npm print -P -u2 "Please install Node.js manually." || return 1 ;;
+	yarn) _pm_ensure yarn npm install -g yarn || return 1 ;;
+	pnpm) _pm_ensure pnpm npm install -g pnpm || return 1 ;;
+	bun) _pm_ensure bun bash -lc 'curl -fsSL https://bun.sh/install | bash' || return 1 ;;
 	esac
-	_pm_ensure "$PM" "$pm_install_cmd" || return 1
 
-	# 4. Main Command Logic
+	# 5. Command Routing
 	case $COMMAND in
-	# --- Installation & Management ---
+	# Basic Management
 	i | install) _pm_run install "${ARGS[@]}" ;;
 
 	add)
-		local is_dev=false
-		local final_args=()
+		local is_dev=false final_args=()
 		for a in "${ARGS[@]}"; do [[ "$a" =~ ^(-D|--dev)$ ]] && is_dev=true || final_args+=("$a"); done
 
+		# Map dev flags: bun uses '-d', everyone else uses '-D'
 		case $PM in
 		npm) [[ "$is_dev" == true ]] && _pm_run install -D "${final_args[@]}" || _pm_run install "${final_args[@]}" ;;
 		bun) [[ "$is_dev" == true ]] && _pm_run add -d "${final_args[@]}" || _pm_run add "${final_args[@]}" ;;
@@ -161,7 +170,7 @@ pm() {
 		[[ "$PM" == "npm" ]] && _pm_run uninstall "${ARGS[@]}" || _pm_run remove "${ARGS[@]}"
 		;;
 
-	# --- Updates ---
+	# Updates: Prefer npm-check-updates (ncu) for all managers
 	up | update | upgrade)
 		if command -v ncu &>/dev/null; then
 			_pm_cmd ncu -i "${ARGS[@]}"
@@ -174,7 +183,7 @@ pm() {
 		fi
 		;;
 
-	# --- Utilities ---
+	# Exec: Dispatch correctly to npx/dlx/bunx
 	exec | x)
 		case $PM in
 		npm) _pm_cmd npx "${ARGS[@]}" ;;
@@ -184,43 +193,52 @@ pm() {
 		esac
 		;;
 
+	# Nuke: Destructive cleanup with project-name confirmation
 	nuke)
 		[[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$HOME" ]] && {
-			echo "Safety: Nuke refused on root/home."
+			print -P -u2 "%F{red}Error: Cannot nuke system root or home.%f"
 			return 1
 		}
 		if [[ "$FORCE_YES" == false ]]; then
 			local project_name=$(basename "$ROOT_DIR")
-			echo -e "${c[red]}☢ DANGER:${c[reset]} Wipe node_modules & lockfiles in $ROOT_DIR?"
+			print -P "%F{red}☢ DANGER:%f Wipe node_modules & lockfiles in $ROOT_DIR?"
 			echo -n "Type '$project_name' to confirm: "
 			read confirm
 			[[ "$confirm" != "$project_name" ]] && {
-				echo "Aborted."
+				print -P "\n%F{yellow}Aborted.%f"
 				return 1
 			}
 		fi
-		(cd "$ROOT_DIR" && rm -rf node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock && command "$PM" install)
+		# Defensive rm with '--' to prevent filename-as-flag interpretation
+		(cd "$ROOT_DIR" && rm -rf -- node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock && command "$PM" install)
 		;;
 
 	doctor)
-		echo -e "${c[blue]}--- PM DOCTOR ---${c[reset]}"
-		echo "Working Dir: $PWD"
+		print -P "%F{blue}--- PM DOCTOR ---%f"
+		echo "Working Dir:  $PWD"
 		echo "Project Root: $ROOT_DIR"
-		echo "Manager: $PM ($(command "$PM" --version 2>/dev/null || echo 'Not Found'))"
-		[[ ${#locks_found[@]} -gt 0 ]] && echo "Lockfiles: ${locks_found[*]}" || echo "Lockfiles: None"
-		[[ ! -d "$ROOT_DIR/node_modules" ]] && echo -e "${c[red]}✗ node_modules missing${c[reset]}" || echo "✓ node_modules present"
-		command -v ncu &>/dev/null && echo "✓ ncu available" || echo "opt: ncu not found"
+		echo "Manager:      $PM ($(command "$PM" --version 2>/dev/null || echo 'Not Found'))"
+		[[ ${#locks_found[@]} -gt 0 ]] && echo "Detected:     ${locks_found[*]}"
+		[[ ! -d "$ROOT_DIR/node_modules" ]] && print -P "%F{red}✗ node_modules missing%f" || echo "✓ node_modules present"
+		command -v ncu &>/dev/null && echo "✓ ncu installed" || echo "opt: ncu missing"
 		;;
 
-	*) # Run Scripts (with package.json verification)
+	*)
+		# Dynamic Script Detection
 		local SCRIPT_EXISTS=false
-		if command -v node &>/dev/null; then
-			SCRIPT_EXISTS=$(node -e "try { const s = require('$PKG_DIR/package.json').scripts; console.log(s && '$COMMAND' in s) } catch { console.log(false) }")
-		else
-			grep -q "\"$COMMAND\":" "$PKG_DIR/package.json" && SCRIPT_EXISTS=true
+		if [[ -f "$PKG_DIR/package.json" ]]; then
+			if command -v jq &>/dev/null; then
+				[[ $(jq -e ".scripts[\"$COMMAND\"]" "$PKG_DIR/package.json" 2>/dev/null) != "null" ]] && SCRIPT_EXISTS=true
+			elif command -v node &>/dev/null; then
+				SCRIPT_EXISTS=$(node -e "try { const s = require('$PKG_DIR/package.json').scripts; console.log(s && '$COMMAND' in s) } catch { console.log(false) }")
+			else
+				# Fallback: strictly grep within the scripts block via sed
+				sed -n '/"scripts": {/,/}/p' "$PKG_DIR/package.json" | grep -q "\"$COMMAND\":" && SCRIPT_EXISTS=true
+			fi
 		fi
 
 		if [[ "$SCRIPT_EXISTS" == "true" ]]; then
+			# Handle prefix differences (npm/pnpm require 'run')
 			[[ "$PM" == "npm" || "$PM" == "pnpm" ]] && _pm_run run "$COMMAND" "${ARGS[@]}" || _pm_run "$COMMAND" "${ARGS[@]}"
 		else
 			_pm_run "$COMMAND" "${ARGS[@]}"
@@ -230,32 +248,34 @@ pm() {
 }
 
 _pm_help() {
-	echo "pm - The Unified Package Manager Wrapper (v2.0)"
+	print -P "%F{blue}pm%f - The Unified Package Manager Wrapper (v3.0)"
 	echo "Usage: pm [options] <command> [args]"
 	echo ""
 	echo "Options:"
-	echo "  -y, --yes     Force yes (CI mode)"
-	echo "  --            Stop parsing global flags"
+	echo "  -y, --yes     Bypass all confirmation prompts (Force Yes)"
+	echo "  --            Stop parsing pm flags (pass remaining to manager)"
 	echo ""
 	echo "Commands:"
-	echo "  i, install    Install dependencies at project root"
-	echo "  add [-D]      Add package (standardized flags)"
+	echo "  i, install    Install all dependencies at project root"
+	echo "  add [-D]      Add package (standardized dev flag mapping)"
 	echo "  rm, remove    Remove package"
-	echo "  up, update    Update packages (interactive via ncu)"
-	echo "  x, exec       Run binaries (npx/dlx/bunx)"
-	echo "  nuke          Clean slate reinstall (Guarded)"
-	echo "  doctor        Environment diagnostics"
-	echo "  [script]      Run package.json scripts"
+	echo "  up, update    Interactive version update (prefers ncu)"
+	echo "  x, exec       Run binaries (npx/dlx/bunx equivalent)"
+	echo "  nuke          Delete node_modules/locks and reinstall"
+	echo "  doctor        Diagnostics for current JS environment"
+	echo "  [script]      Run any script defined in package.json"
 }
 
 #######################################
-# Root-Aware Zsh Autocompletion
+# Zsh Autocompletion
 #######################################
 
 _pm_completion() {
+	emulate -L zsh
 	local -a subcommands scripts
 	local ROOT_DIR="$PWD" PKG_DIR="$PWD"
 
+	# Context discovery for completion
 	while [[ "$ROOT_DIR" != "/" ]]; do
 		[[ -f "$ROOT_DIR/package.json" ]] && {
 			PKG_DIR="$ROOT_DIR"
@@ -266,13 +286,16 @@ _pm_completion() {
 
 	subcommands=('i:Install' 'add:Add' 'rm:Remove' 'up:Update' 'nuke:Clean' 'x:Exec' 'doctor:Doctor' 'help:Help')
 
+	# Parse scripts from package.json using hierarchy: jq > node > sed
 	if [[ -f "$PKG_DIR/package.json" ]]; then
-		if command -v node &>/dev/null; then
+		if command -v jq &>/dev/null; then
+			scripts=($(jq -r '.scripts | keys[]?' "$PKG_DIR/package.json" 2>/dev/null))
+		elif command -v node &>/dev/null; then
 			scripts=($(node -e "try { console.log(Object.keys(require('$PKG_DIR/package.json').scripts||{}).join(' ')) } catch {}" 2>/dev/null))
 		else
 			scripts=($(sed -n '/"scripts": {/,/}/ s/^[[:space:]]*"\([^"]*\)":.*/\1/p' "$PKG_DIR/package.json" | grep -v "scripts"))
 		fi
-		scripts=("${scripts[@]//:/\\:}")
+		scripts=("${scripts[@]//:/\\:}") # Escape colons for Zsh _describe
 	fi
 
 	_alternative \
