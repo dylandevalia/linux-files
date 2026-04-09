@@ -1,5 +1,5 @@
 # ==============================================================================
-# pm - Universal Package Manager Wrapper (v3.5)
+# pm - Universal Package Manager Wrapper (v3.6)
 # ------------------------------------------------------------------------------
 # A deterministic, context-aware utility to unify npm, pnpm, yarn, and bun.
 #
@@ -31,7 +31,7 @@ pm() {
   emulate -L zsh
   setopt local_options no_unset pipefail
 
-  local VERSION="3.5"
+  local VERSION="3.6"
   local PM="" COMMAND="" ROOT_DIR="$PWD" PKG_DIR="$PWD"
   local ARGS=()
   local ASSUME_YES=0
@@ -220,7 +220,9 @@ pm() {
         if command -v jq &>/dev/null; then
           jq -e --arg cmd "$COMMAND" '.scripts[$cmd] != null' "$PKG_DIR/package.json" >/dev/null 2>&1 && HAS_SCRIPT=1
         elif command -v node &>/dev/null; then
-          local node_check=$(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' "$PKG_DIR/package.json" "$COMMAND" 2>/dev/null)
+          local node_check
+          node_check="$(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' \
+            "$PKG_DIR/package.json" "$COMMAND")"
           [[ "$node_check" == "true" ]] && HAS_SCRIPT=1
         fi
       fi
@@ -234,7 +236,7 @@ pm() {
 }
 
 _pm_help() {
-  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v3.4)"
+  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v$VERSION)"
   echo "Usage: pm [options] <command> [args]"
   echo ""
   echo "Options:"
@@ -257,7 +259,9 @@ _pm_help() {
 _pm_completion() {
   emulate -L zsh
   local -a subcommands scripts
-  local ROOT_DIR PKG_DIR found_pkg=0
+  local ROOT_DIR 
+  local PKG_DIR="$PWD" 
+  local found_pkg=0
   local current="$PWD"
   
   while [[ "$current" != "/" ]]; do
