@@ -1,5 +1,5 @@
 # ==============================================================================
-# pm - Universal Package Manager Wrapper (v3.6)
+# pm - Universal Package Manager Wrapper (v3.7)
 # ------------------------------------------------------------------------------
 # A deterministic, context-aware utility to unify npm, pnpm, yarn, and bun.
 #
@@ -31,20 +31,17 @@ pm() {
   emulate -L zsh
   setopt local_options no_unset pipefail
 
-  local VERSION="3.6"
-  local PM="" COMMAND="" ROOT_DIR="$PWD" PKG_DIR="$PWD"
+  local VERSION="3.7"
+  local PM="" COMMAND="" ROOT_DIR="" PKG_DIR=""
   local ARGS=()
-  local ASSUME_YES=0
-  local IS_INTERACTIVE=0
-  local VERBOSE=0
-  local PARSING_FLAGS=1
-  local SELECTION_REASON="default (npm)"
+  local ASSUME_YES=0 NO_PROMPT=0 VERBOSE=0 IS_INTERACTIVE=0
+  local PARSING_FLAGS=1 SELECTION_REASON="default (npm)"
   local -a ALL_LOCKS_FOUND=()
+  local PM_VERSION_CACHE=""
 
-  # 1. Environment & Intent Detection
+  # 1. Environment Detection
   [[ -t 0 ]] && IS_INTERACTIVE=1
-  [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && ASSUME_YES=1
-  (( ! IS_INTERACTIVE )) && ASSUME_YES=1 
+  [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && NO_PROMPT=1
 
   # 2. Global Flag Parsing
   for arg in "$@"; do
@@ -52,6 +49,7 @@ pm() {
       case $arg in
         --) PARSING_FLAGS=0 ;;
         -y|--yes) ASSUME_YES=1 ;;
+        --no-prompt) NO_PROMPT=1 ;;
         -v|--verbose) VERBOSE=1 ;;
         -V|--version) echo "pm wrapper v$VERSION"; return 0 ;;
         -h|--help|help) _pm_help; return 0 ;;
@@ -62,169 +60,170 @@ pm() {
     fi
   done
 
-  # 3. Context Discovery
-  local current="$PWD"
-  local found_pkg=0
-
-  while [[ "$current" != "/" ]]; do
-    [[ -f "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
-    
-    if [[ -z "$PM" ]]; then
-      if [[ -f "$current/pnpm-lock.yaml" ]]; then 
-        PM="pnpm"; SELECTION_REASON="lockfile (pnpm-lock.yaml) at $current"
-      elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then 
-        PM="bun"; SELECTION_REASON="lockfile (bun.lock) at $current"
-      elif [[ -f "$current/yarn.lock" ]]; then 
-        PM="yarn"; SELECTION_REASON="lockfile (yarn.lock) at $current"
-      elif [[ -f "$current/package-lock.json" ]]; then 
-        PM="npm"; SELECTION_REASON="lockfile (package-lock.json) at $current"
+  # 3. Context Discovery (Consolidated Logic)
+  _pm_discover() {
+    local current="$PWD"
+    local found_pkg=0
+    while [[ "$current" != "/" ]]; do
+      [[ -f "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
+      
+      # Priority PM Check
+      if [[ -z "$PM" ]]; then
+        if [[ -f "$current/pnpm-lock.yaml" ]]; then PM="pnpm"; SELECTION_REASON="lockfile (pnpm-lock.yaml) at $current"
+        elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then PM="bun"; SELECTION_REASON="lockfile (bun.lock) at $current"
+        elif [[ -f "$current/yarn.lock" ]]; then PM="yarn"; SELECTION_REASON="lockfile (yarn.lock) at $current"
+        elif [[ -f "$current/package-lock.json" ]]; then PM="npm"; SELECTION_REASON="lockfile (package-lock.json) at $current"
+        fi
+        [[ -n "$PM" ]] && ROOT_DIR="$current"
       fi
-      [[ -n "$PM" ]] && ROOT_DIR="$current"
-    fi
 
-    [[ -f "$current/pnpm-lock.yaml" ]] && ALL_LOCKS_FOUND+=("pnpm@$current")
-    [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && ALL_LOCKS_FOUND+=("bun@$current")
-    [[ -f "$current/yarn.lock" ]] && ALL_LOCKS_FOUND+=("yarn@$current")
-    [[ -f "$current/package-lock.json" ]] && ALL_LOCKS_FOUND+=("npm@$current")
-    
-    if [[ -d "$current/.git" && -z "$PM" ]]; then 
-      ROOT_DIR="$current"; SELECTION_REASON="boundary (.git) at $current"; break
-    fi
-    current="${current:h}"
-  done
+      # Gather all locks for Doctor
+      [[ -f "$current/pnpm-lock.yaml" ]] && ALL_LOCKS_FOUND+=("pnpm@$current")
+      [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && ALL_LOCKS_FOUND+=("bun@$current")
+      [[ -f "$current/yarn.lock" ]] && ALL_LOCKS_FOUND+=("yarn@$current")
+      [[ -f "$current/package-lock.json" ]] && ALL_LOCKS_FOUND+=("npm@$current")
 
-  # Physical Path Canonicalization
-  ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
-  local HOME_REAL="$(cd "$HOME" && pwd -P)"
+      if [[ -d "$current/.git" && -z "$PM" ]]; then 
+        ROOT_DIR="$current"; SELECTION_REASON="boundary (.git) at $current"; break
+      fi
+      current="${current:h}"
+    done
+    [[ -z "$ROOT_DIR" ]] && ROOT_DIR="$PWD"
+    [[ -z "$PKG_DIR" ]] && PKG_DIR="$ROOT_DIR"
+    [[ -z "$PM" ]] && PM="npm"
+    ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
+  }
+  _pm_discover
 
   COMMAND=${ARGS[1]:-install}
-  ARGS=("${ARGS[@]:1}") 
-  [[ -z "$PM" ]] && PM="npm" 
+  ARGS=("${ARGS[@]:1}")
 
-  # --- Internal Helpers ---
+  # --- Helpers ---
 
   _pm_log() {
-    if (( VERBOSE )) || [[ -t 1 && "$COMMAND" =~ ^(install|nuke|add|rm|remove|uninstall)$ ]]; then
+    if (( VERBOSE )) || [[ -t 1 && "$COMMAND" =~ ^(install|ci|nuke|add|rm|remove|uninstall)$ ]]; then
       print -P "%F{blue}Executing:%f %F{cyan}(cd ${(qq)ROOT_DIR} && $1 ${(qq)@:2})%f"
     fi
   }
 
-  _pm_run() { _pm_log "$PM" "$@"; (cd "$ROOT_DIR" && command "$PM" "$@") }
-  _pm_cmd() { _pm_log "$@" ; (cd "$ROOT_DIR" && command "$@") }
+  _pm_get_version() {
+    [[ -z "$PM_VERSION_CACHE" ]] && PM_VERSION_CACHE=$(command "$PM" --version 2>/dev/null || echo "unknown")
+    echo "$PM_VERSION_CACHE"
+  }
 
   _pm_ensure() {
     local bin="$1"; shift
-    if ! command -v "$bin" &> /dev/null; then
-      if (( ASSUME_YES )); then
-        _pm_log "bootstrap" "$@"
-        "$@" || { print -P -u2 "%F{red}Error:%f Failed to auto-install $bin."; return 1; }
-      elif (( IS_INTERACTIVE )); then
-        read -q "choice?Install $bin now? (y/n) " || { echo; return 1; }
-        echo; "$@"
-      else
-        print -P -u2 "%F{red}Error:%f '$bin' missing and no terminal available to prompt."
-        return 1
-      fi
+    command -v "$bin" &>/dev/null && return 0
+    if (( ASSUME_YES )); then
+      _pm_log "bootstrap" "$@"
+      "$@" || return 1
+    elif (( NO_PROMPT )) || (( ! IS_INTERACTIVE )); then
+      print -P -u2 "%F{red}Error:%f '$bin' missing. Manual install required (or use --yes)."
+      return 1
+    else
+      read -q "choice?Install $bin now? (y/n) " || { echo; return 1; }
+      echo; "$@"
     fi
   }
 
-  # 4. Toolchain Bootstrap
-  if ! command -v "$PM" &> /dev/null; then
-    if [[ "$PM" == "npm" ]]; then
-       print -P -u2 "%F{red}Error:%f npm not found."; return 1
-    fi
-    command -v npm &>/dev/null || { print -P -u2 "%F{red}Error:%f npm missing; cannot bootstrap $PM."; return 1; }
-    
-    if [[ "$PM" == "yarn" ]]; then
-      _pm_ensure yarn npm install -g yarn || return 1
-    elif [[ "$PM" == "pnpm" ]]; then
-      _pm_ensure pnpm npm install -g pnpm || return 1
-    elif [[ "$PM" == "bun" ]]; then
-      _pm_ensure bun bash -lc 'curl -fsSL https://bun.sh/install | bash' || return 1
-    fi
-  fi
+  _pm_run() { _pm_log "$PM" "$@"; (cd "$ROOT_DIR" && command "$PM" "$@") }
 
-  # 5. Command Routing
+  # 4. Routing Logic
   case $COMMAND in
-    i|install) _pm_run install "${ARGS[@]}" ;;
-    
+    i|install|ci)
+      local frozen=0
+      [[ "$COMMAND" == "ci" ]] && frozen=1
+      for a in "${ARGS[@]}"; do [[ "$a" == "--frozen" ]] && frozen=1; done
+
+      if (( frozen )); then
+        case $PM in
+          npm) _pm_run ci "${ARGS[@]//--frozen/}" ;;
+          pnpm) _pm_run install --frozen-lockfile "${ARGS[@]//--frozen/}" ;;
+          bun) _pm_run install --frozen-lockfile "${ARGS[@]//--frozen/}" ;;
+          yarn) 
+            if [[ "$(_pm_get_version)" =~ ^1\. ]]; then _pm_run install --frozen-lockfile "${ARGS[@]//--frozen/}"
+            else _pm_run install --immutable "${ARGS[@]//--frozen/}"; fi ;;
+        esac
+      else
+        _pm_run install "${ARGS[@]}"
+      fi ;;
+
     add)
-      local is_dev=0 final_args=() parsing_add=1
+      local type_flag="" final_args=()
       for a in "${ARGS[@]}"; do
-        if (( parsing_add )); then
-          case $a in
-            --) parsing_add=0 ;;
-            -D|--dev|--save-dev) is_dev=1 ;;
-            *) final_args+=("$a") ;;
-          esac
-        else
-          final_args+=("$a")
-        fi
+        case $a in
+          -D|--dev|--save-dev) type_flag="dev" ;;
+          -P|--prod) type_flag="prod" ;;
+          -O|--optional) type_flag="opt" ;;
+          *) final_args+=("$a") ;;
+        esac
       done
       case $PM in
-        npm) (( is_dev )) && _pm_run install -D "${final_args[@]}" || _pm_run install "${final_args[@]}" ;;
-        bun) (( is_dev )) && _pm_run add -d "${final_args[@]}" || _pm_run add "${final_args[@]}" ;;
-        *)   (( is_dev )) && _pm_run add -D "${final_args[@]}" || _pm_run add "${final_args[@]}" ;;
+        npm) [[ "$type_flag" == "dev" ]] && _pm_run install -D "${final_args[@]}" || _pm_run install "${final_args[@]}" ;;
+        bun) [[ "$type_flag" == "dev" ]] && _pm_run add -d "${final_args[@]}" || _pm_run add "${final_args[@]}" ;;
+        pnpm) 
+          [[ "$type_flag" == "dev" ]] && _pm_run add -D "${final_args[@]}" 
+          [[ "$type_flag" == "opt" ]] && _pm_run add --save-optional "${final_args[@]}"
+          [[ "$type_flag" == "prod" ]] && _pm_run add "${final_args[@]}" ;;
+        *) [[ "$type_flag" == "dev" ]] && _pm_run add -D "${final_args[@]}" || _pm_run add "${final_args[@]}" ;;
       esac ;;
 
-    rm|remove|uninstall)
-      [[ "$PM" == "npm" ]] && _pm_run uninstall "${ARGS[@]}" || _pm_run remove "${ARGS[@]}" ;;
-
     up|update|upgrade)
-      if command -v ncu &>/dev/null; then 
-        _pm_cmd ncu -i "${ARGS[@]}"
+      if command -v ncu &>/dev/null; then _pm_run ncu -i "${ARGS[@]}"
       else
         case $PM in
           pnpm) _pm_run up -i ;;
-          yarn) [[ "$(command yarn --version 2>/dev/null)" =~ ^1\. ]] && _pm_run upgrade-interactive --latest || _pm_run up -i ;;
-          *)    _pm_run update "${ARGS[@]}" ;;
+          yarn) [[ "$(_pm_get_version)" =~ ^1\. ]] && _pm_run upgrade-interactive --latest || _pm_run up -i ;;
+          *) _pm_run update "${ARGS[@]}" ;;
         esac
       fi ;;
 
     exec|x)
-      case $PM in
-        npm)  _pm_cmd npx "${ARGS[@]}" ;;
-        pnpm) _pm_run dlx "${ARGS[@]}" ;;
-        yarn) [[ "$(command yarn --version 2>/dev/null)" =~ ^1\. ]] && _pm_cmd npx "${ARGS[@]}" || _pm_run dlx "${ARGS[@]}" ;;
-        bun)  _pm_cmd bunx "${ARGS[@]}" ;;
-      esac ;;
+      # Optimization: If bin exists in local node_modules, use 'exec' style
+      if [[ -f "$ROOT_DIR/node_modules/.bin/${ARGS[1]:-}" ]]; then
+        case $PM in
+          npm|yarn) _pm_run "$@" ;; # yarn/npm run local bins naturally
+          pnpm) _pm_run exec "${ARGS[@]}" ;;
+          bun) _pm_run "${ARGS[@]}" ;;
+        esac
+      else
+        case $PM in
+          npm|yarn) [[ "$(_pm_get_version)" =~ ^1\. ]] && (cd "$ROOT_DIR" && npx "${ARGS[@]}") || _pm_run dlx "${ARGS[@]}" ;;
+          pnpm) _pm_run dlx "${ARGS[@]}" ;;
+          bun) (cd "$ROOT_DIR" && bunx "${ARGS[@]}") ;;
+        esac
+      fi ;;
 
     nuke)
-      [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$HOME_REAL" ]] && { print -P -u2 "%F{red}Error:%f Nuke refused on root/home."; return 1; }
+      local home_real="$(cd "$HOME" && pwd -P)"
+      local depth=$(echo "$ROOT_DIR" | tr -cd '/' | wc -c)
+      [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$home_real" || $depth -lt 3 ]] && { print -P -u2 "%F{red}Error:%f Root too shallow for nuke: $ROOT_DIR"; return 1; }
+      [[ ! -f "$ROOT_DIR/package.json" ]] && { print -P -u2 "%F{red}Error:%f No package.json in $ROOT_DIR."; return 1; }
+
+      print -P "%F{red}☢  NUKE:%f The following will be removed in $ROOT_DIR:"
+      echo "   - node_modules/"
+      echo "   - lockfiles: package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb"
+      
       if (( ! ASSUME_YES )); then
-        local proj=$(basename "$ROOT_DIR")
-        print -P "%F{red}☢ DANGER:%f Wipe node_modules & locks in $ROOT_DIR?"
-        echo -n "Type '$proj' to confirm: "
+        echo -n "Confirm project name '$(basename "$ROOT_DIR")': "
         read confirm
-        [[ "$confirm" != "$proj" ]] && { print -P "\nAborted."; return 1; }
+        [[ "$confirm" != "$(basename "$ROOT_DIR")" ]] && return 1
       fi
-      (cd "$ROOT_DIR" && rm -rf -- node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock)
+      (cd "$ROOT_DIR" && rm -rf node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock)
       _pm_run install ;;
 
     doctor)
-      local pm_v=$(command "$PM" --version 2>/dev/null || echo "not found")
       print -P "%F{blue}--- PM DOCTOR (v$VERSION) ---%f"
-      echo "Project Root: $ROOT_DIR"
-      echo "Selected PM:  $PM ($pm_v)"
-      echo "Reason:       $SELECTION_REASON"
-      [[ ! -d "$ROOT_DIR/node_modules" ]] && print -P "%F{red}✗ node_modules missing%f" || echo "✓ node_modules present"
-      [[ ${#ALL_LOCKS_FOUND[@]} -gt 0 ]] && echo "Found Locks:  ${ALL_LOCKS_FOUND[*]}"
+      echo "Environment:  Node $(node -v), PM: $PM ($(_pm_get_version))"
+      echo "Context:      Root: $ROOT_DIR"
+      echo "              Reason: $SELECTION_REASON"
+      [[ ${#ALL_LOCKS_FOUND[@]} -gt 1 ]] && print -P "%F{yellow}⚠ WARNING:%f Multiple lockfiles found: ${ALL_LOCKS_FOUND[*]}"
       ;;
 
-    *) 
-      local HAS_SCRIPT=0
-      if [[ -f "$PKG_DIR/package.json" ]]; then
-        if command -v jq &>/dev/null; then
-          jq -e --arg cmd "$COMMAND" '.scripts[$cmd] != null' "$PKG_DIR/package.json" >/dev/null 2>&1 && HAS_SCRIPT=1
-        elif command -v node &>/dev/null; then
-          local node_check
-          node_check="$(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' \
-            "$PKG_DIR/package.json" "$COMMAND")"
-          [[ "$node_check" == "true" ]] && HAS_SCRIPT=1
-        fi
-      fi
-
-      if (( HAS_SCRIPT )); then
+    *)
+      # Script routing using Node for speed/availability
+      local has_script=$(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' "$PKG_DIR/package.json" "$COMMAND" 2>/dev/null)
+      if [[ "$has_script" == "true" ]]; then
         [[ "$PM" =~ ^(npm|pnpm)$ ]] && _pm_run run "$COMMAND" "${ARGS[@]}" || _pm_run "$COMMAND" "${ARGS[@]}"
       else
         _pm_run "$COMMAND" "${ARGS[@]}"
