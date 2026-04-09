@@ -1,5 +1,5 @@
 # ==============================================================================
-# pm - Universal Package Manager Wrapper (v3.3)
+# pm - Universal Package Manager Wrapper (v3.4)
 # ------------------------------------------------------------------------------
 # A deterministic, context-aware utility to unify npm, pnpm, yarn, and bun.
 #
@@ -28,18 +28,19 @@
 # ==============================================================================
 
 pm() {
-  # Standardize environment and protect against user-specific shell options
   emulate -L zsh
   setopt local_options no_unset pipefail
 
+  local VERSION="3.4"
   local PM="" COMMAND="" ROOT_DIR="$PWD" PKG_DIR="$PWD"
   local ARGS=()
   local FORCE_YES=0
   local VERBOSE=0
   local PARSING_FLAGS=1
+  local SELECTION_REASON="default (npm)"
   local -a ALL_LOCKS_FOUND=()
 
-  # 1. CI & TTY Detection (Set FORCE_YES if non-interactive)
+  # 1. CI & TTY Detection
   [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && FORCE_YES=1
   [[ ! -t 0 ]] && FORCE_YES=1 
 
@@ -50,6 +51,7 @@ pm() {
         --) PARSING_FLAGS=0 ;;
         -y|--yes) FORCE_YES=1 ;;
         -v|--verbose) VERBOSE=1 ;;
+        -V|--version) echo "pm wrapper v$VERSION"; return 0 ;;
         -h|--help|help) _pm_help; return 0 ;;
         *) ARGS+=("$arg") ;;
       esac
@@ -63,26 +65,39 @@ pm() {
   local found_pkg=0
 
   while [[ "$current" != "/" ]]; do
+    # Nearest package.json defines the script context
     [[ -f "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
     
+    # Priority-based PM detection
     if [[ -z "$PM" ]]; then
-      if [[ -f "$current/pnpm-lock.yaml" ]]; then PM="pnpm"
-      elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then PM="bun"
-      elif [[ -f "$current/yarn.lock" ]]; then PM="yarn"
-      elif [[ -f "$current/package-lock.json" ]]; then PM="npm"
+      if [[ -f "$current/pnpm-lock.yaml" ]]; then 
+        PM="pnpm"; SELECTION_REASON="lockfile (pnpm-lock.yaml) at $current"
+      elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then 
+        PM="bun"; SELECTION_REASON="lockfile (bun.lock) at $current"
+      elif [[ -f "$current/yarn.lock" ]]; then 
+        PM="yarn"; SELECTION_REASON="lockfile (yarn.lock) at $current"
+      elif [[ -f "$current/package-lock.json" ]]; then 
+        PM="npm"; SELECTION_REASON="lockfile (package-lock.json) at $current"
       fi
       [[ -n "$PM" ]] && ROOT_DIR="$current"
     fi
 
+    # Diagnostics gathering
     [[ -f "$current/pnpm-lock.yaml" ]] && ALL_LOCKS_FOUND+=("pnpm@$current")
     [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]] && ALL_LOCKS_FOUND+=("bun@$current")
     [[ -f "$current/yarn.lock" ]] && ALL_LOCKS_FOUND+=("yarn@$current")
     [[ -f "$current/package-lock.json" ]] && ALL_LOCKS_FOUND+=("npm@$current")
     
-    [[ -d "$current/.git" && -z "$PM" ]] && { ROOT_DIR="$current"; break; }
+    # Git boundary fallback
+    if [[ -d "$current/.git" && -z "$PM" ]]; then 
+      ROOT_DIR="$current"
+      SELECTION_REASON="boundary (.git) at $current"
+      break
+    fi
     current="${current:h}"
   done
 
+  # Canonicalize Paths
   ROOT_DIR=$ROOT_DIR:A
   local HOME_REAL=$HOME:A
 
@@ -93,6 +108,7 @@ pm() {
   # --- Internal Helpers ---
 
   _pm_log() {
+    # Log if verbose is active OR if interactive and performing a mutation
     if (( VERBOSE )) || [[ -t 1 && "$COMMAND" =~ ^(install|nuke|add|rm|remove|uninstall)$ ]]; then
       print -P "%F{blue}Executing:%f %F{cyan}(cd ${(qq)ROOT_DIR} && $1 ${(qq)@:2})%f"
     fi
@@ -105,8 +121,11 @@ pm() {
     local bin="$1"; shift
     if ! command -v "$bin" &> /dev/null; then
       if (( FORCE_YES )); then
-        [[ ! -t 0 ]] && { print -P -u2 "%F{red}Error:%f Required tool '$bin' missing in non-interactive environment."; return 1; }
-        return 0
+        # If FORCE_YES is set, attempt the install command provided in the args
+        # or fail fast if we aren't in a TTY.
+        [[ ! -t 0 ]] && { print -P -u2 "%F{red}Error:%f '$bin' missing. Non-interactive install aborted."; return 1; }
+        "$@" 
+        return $?
       fi
       read -q "choice?Install $bin now? (y/n) " || { echo; return 1; }
       echo; "$@" 
@@ -116,7 +135,7 @@ pm() {
   # 4. Toolchain Bootstrap
   if ! command -v "$PM" &> /dev/null; then
     case $PM in
-      npm) print -P -u2 "%F{red}Error:%f npm not found. Install Node.js."; return 1 ;;
+      npm) print -P -u2 "%F{red}Error:%f npm not found."; return 1 ;;
       yarn|pnpm) 
         command -v npm &>/dev/null || { print -P -u2 "%F{red}Error:%f npm missing; cannot bootstrap $PM."; return 1; }
         [[ "$PM" == "yarn" ]] && _pm_ensure yarn npm install -g yarn || _pm_ensure pnpm npm install -g pnpm || return 1
@@ -157,7 +176,7 @@ pm() {
       else
         case $PM in
           pnpm) _pm_run up -i ;;
-          yarn) [[ "$(command yarn --version)" =~ ^1\. ]] && _pm_run upgrade-interactive --latest || _pm_run up -i ;;
+          yarn) [[ "$(command yarn --version 2>/dev/null)" =~ ^1\. ]] && _pm_run upgrade-interactive --latest || _pm_run up -i ;;
           *)    _pm_run update "${ARGS[@]}" ;;
         esac
       fi ;;
@@ -166,7 +185,7 @@ pm() {
       case $PM in
         npm)  _pm_cmd npx "${ARGS[@]}" ;;
         pnpm) _pm_run dlx "${ARGS[@]}" ;;
-        yarn) [[ "$(command yarn --version)" =~ ^1\. ]] && _pm_cmd npx "${ARGS[@]}" || _pm_run dlx "${ARGS[@]}" ;;
+        yarn) [[ "$(command yarn --version 2>/dev/null)" =~ ^1\. ]] && _pm_cmd npx "${ARGS[@]}" || _pm_run dlx "${ARGS[@]}" ;;
         bun)  _pm_cmd bunx "${ARGS[@]}" ;;
       esac ;;
 
@@ -182,11 +201,13 @@ pm() {
       (cd "$ROOT_DIR" && rm -rf -- node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock && command "$PM" install) ;;
 
     doctor)
-      print -P "%F{blue}--- PM DOCTOR ---%f"
+      local pm_v=$(command "$PM" --version 2>/dev/null || echo "not found")
+      print -P "%F{blue}--- PM DOCTOR (v$VERSION) ---%f"
       echo "Project Root: $ROOT_DIR"
-      echo "Manager:      $PM ($( command "$PM" --version 2>/dev/null ))"
+      echo "Selected PM:  $PM ($pm_v)"
+      echo "Reason:       $SELECTION_REASON"
       [[ ! -d "$ROOT_DIR/node_modules" ]] && print -P "%F{red}✗ node_modules missing%f" || echo "✓ node_modules present"
-      [[ ${#ALL_LOCKS_FOUND[@]} -gt 0 ]] && echo "All Locks:    ${ALL_LOCKS_FOUND[*]}"
+      [[ ${#ALL_LOCKS_FOUND[@]} -gt 0 ]] && echo "Found Locks:  ${ALL_LOCKS_FOUND[*]}"
       ;;
 
     *) 
@@ -195,7 +216,8 @@ pm() {
         if command -v jq &>/dev/null; then
           jq -e --arg cmd "$COMMAND" '.scripts[$cmd] != null' "$PKG_DIR/package.json" >/dev/null 2>&1 && HAS_SCRIPT=1
         elif command -v node &>/dev/null; then
-          [[ $(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' "$PKG_DIR/package.json" "$COMMAND") == "true" ]] && HAS_SCRIPT=1
+          local node_check=$(node -e 'try { const s = require(process.argv[1]).scripts; console.log(!!(s && process.argv[2] in s)); } catch { console.log(false) }' "$PKG_DIR/package.json" "$COMMAND" 2>/dev/null)
+          [[ "$node_check" == "true" ]] && HAS_SCRIPT=1
         fi
       fi
 
@@ -208,31 +230,35 @@ pm() {
 }
 
 _pm_help() {
-  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v3.3)"
+  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v3.4)"
   echo "Usage: pm [options] <command> [args]"
   echo ""
   echo "Options:"
   echo "  -y, --yes      Force 'yes' (Auto-set in CI or non-TTY)"
   echo "  -v, --verbose  Show execution commands"
+  echo "  -V, --version  Show wrapper version"
+  echo "  --             Stop parsing global flags"
   echo ""
   echo "Commands:"
   echo "  i, install     Install dependencies at root"
-  echo "  add [-D]       Add package (auto-maps flags)"
+  echo "  add [-D]       Add package (auto-maps -D/--dev)"
   echo "  rm, remove     Remove package"
   echo "  up, update     Interactive update (prefers NCU)"
   echo "  x, exec        Execute binary (npx/dlx/bunx)"
-  echo "  nuke           Wipe and reinstall (Safe-guarded)"
-  echo "  doctor         Check environment health"
-  echo "  [script]       Run package.json scripts"
+  echo "  nuke           Wipe node_modules/locks and reinstall"
+  echo "  doctor         Show diagnostics & selection reason"
 }
 
+# --- Autocompletion ---
 _pm_completion() {
   emulate -L zsh
   local -a subcommands scripts
-  local ROOT_DIR="$PWD" PKG_DIR="$PWD"
-  while [[ "$ROOT_DIR" != "/" ]]; do
-    [[ -f "$ROOT_DIR/package.json" ]] && { PKG_DIR="$ROOT_DIR"; break; }
-    ROOT_DIR="${ROOT_DIR:h}"
+  local ROOT_DIR PKG_DIR found_pkg=0
+  local current="$PWD"
+  
+  while [[ "$current" != "/" ]]; do
+    [[ -f "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; break; }
+    current="${current:h}"
   done
   
   subcommands=(
@@ -250,8 +276,6 @@ _pm_completion() {
       scripts=($(jq -r '.scripts | keys[]?' "$PKG_DIR/package.json" 2>/dev/null))
     elif command -v node &>/dev/null; then
       scripts=($(node -e 'try { console.log(Object.keys(require(process.argv[1]).scripts||{}).join(" ")) } catch {}' "$PKG_DIR/package.json"))
-    else
-      scripts=($(sed -n '/"scripts": {/,/}/ s/^[[:space:]]*"\([^"]*\)":.*/\1/p' "$PKG_DIR/package.json" | grep -v "scripts"))
     fi
     scripts=("${scripts[@]//:/\\:}")
   fi
