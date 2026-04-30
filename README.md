@@ -8,9 +8,9 @@ These are my dotfiles.
 
 * **Shell**: `zsh`
 * **Plugin manager**: [zinit](https://github.com/zdharma-continuum/zinit)
-* **Prompt:** [Starship](https://starship.rs/)
-* **Navigation:** [Zoxide](https://github.com/ajeetdsouza/zoxide)
-* **Modern Tools:**
+* **Prompt**: [Starship](https://starship.rs/)
+* **Navigation**:  [Zoxide](https://github.com/ajeetdsouza/zoxide)
+* **Modern Tools**:
     *   `eza`: A modern replacement for `ls`
     *   `bat`: A `cat` clone with syntax highlighting
     *   `fd`: A simple, fast alternative to `find`
