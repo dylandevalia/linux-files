@@ -1,0 +1,78 @@
+#!/bin/bash
+
+set -e # exit on error
+
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+echo -e "${BLUE}Building zsh environment...${NC}"
+
+# Base dependencies
+echo -e "\n${GREEN}Installing core dependencies...${NC}"
+sudo apt update && sudo apt install -y \
+	bat \
+	curl \
+	fzf \
+	git \
+	gpg \
+	stow \
+	unzip \
+	zsh
+
+# atuin
+if ! command -v atuin &> /dev/null; then
+	echo -e "\n${GREEN}Installing atuin...${NC}"
+	curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh
+fi
+
+# eza (modern ls)
+if ! command -v eza &> /dev/null; then
+	echo -e "\n${GREEN}Installing eza...${NC}"
+	sudo mkdir -p /etc/apt/keyrings
+	wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+	echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+	sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+	sudo apt update && sudo apt install -y eza
+fi
+
+# Fast node manager (fnm)
+if ! command -v fnm &> /dev/null; then
+	echo -e "\n${GREEN}Installing fnm...${NC}"
+	curl -fsSL https://fnm.vercel.app/install | sh
+fi
+
+# starship (prompt)
+if ! command -v starship &> /dev/null; then
+    echo -e "\n${GREEN}Installing starship...${NC}"
+    curl -sS https://starship.rs/install.sh | sh
+fi
+
+# tig
+if ! command -v tig &> /dev/null; then
+	echo -e "\n${GREEN}Installing tig...${NC}"
+	sudo apt update && sudo apt install -y tig
+fi
+
+# zoxide (smarter cd)
+if ! command -v zoxide &> /dev/null; then
+    echo -e "\n${GREEN}Installing zoxide...${NC}"
+    curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+fi
+
+# Setup symlinks
+echo -e "\n${GREEN}Symlinking dotfiles...${NC}"
+cd ~/dotfiles
+# remove existing configs if exists
+rm -rf ~/.zshrc
+mkdir -p ~/.config
+stow zsh
+stow starship
+
+# set zsh as default shell
+if [ "$SHELL" != "$(which zsh)" ]; then
+    echo -e "\n${GREEN}Changing default shell to Zsh...${NC}"
+    chsh -s $(which zsh)
+fi
+
+echo -e "\n${BLUE}Installation complete! Please restart your terminal.${NC}"
