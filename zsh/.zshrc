@@ -105,7 +105,8 @@ setopt SHARE_HISTORY
 # Completion styling
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
-zstyle ':completion:*:*:pm:*' group-order scripts subcommands
+zstyle ':completion:*:*:pm:*' group-name ''
+zstyle ':completion:*:*:pm:*' group-order scripts subcommands 'package.json scripts' 'pm commands'
 
 # fzf-tab interactive previews
 # (Requires bat and eza to be installed)
