@@ -34,7 +34,7 @@
 emulate -L zsh
 setopt local_options err_return
 
-local PM_WRAPPER_VERSION="3.9"
+local PM_WRAPPER_VERSION="3.9.1"
 
 local PM="" COMMAND="" ROOT_DIR="" PKG_DIR=""
 local ARGS=()
@@ -90,6 +90,7 @@ done
 _pm_discover() {
   local current="$PWD"
   local found_pkg=0
+
   while [[ "$current" != "/" ]]; do
     # Ensure package.json is readable before claiming it
     [[ -r "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
@@ -113,10 +114,12 @@ _pm_discover() {
     fi
     current="${current:h}"
   done
+
   [[ -z "$ROOT_DIR" ]] && ROOT_DIR="$PWD"
   [[ -z "$PKG_DIR" ]] && PKG_DIR="$ROOT_DIR"
   [[ -z "$PM" ]] && PM="npm"
-  ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
+
+  ROOT_DIR="${ROOT_DIR:A}"
 }
 _pm_discover
 
@@ -140,10 +143,12 @@ _pm_get_version() {
 _pm_ensure() {
   local bin="$1"; shift
   command -v "$bin" &>/dev/null && return 0
+
   if (( $# == 0 )); then
     print -P -u2 "%F{red}Error:%f '$bin' is not installed. Please install it manually."
     return 1
   fi
+
   if (( ASSUME_YES )); then
     _pm_log "bootstrap" "$@"
     "$@" || return 1
@@ -263,17 +268,19 @@ case $COMMAND in
     fi ;;
 
   nuke)
-    local home_real depth
-    home_real="$(cd "$HOME" && pwd -P)"
-    depth=$(print "$ROOT_DIR" | tr -cd '/' | wc -c)
+    local home_real="${HOME:A}" depth
+
+    local slashes="${ROOT_DIR//[^\/]}"
+    depth="${#slashes}"
+
     [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$home_real" || $depth -lt 3 ]] && { print -P -u2 "%F{red}Error:%f Root too shallow: $ROOT_DIR"; return 1; }
     [[ ! -f "$ROOT_DIR/package.json" ]] && { print -P -u2 "%F{red}Error:%f No package.json found."; return 1; }
 
     print -P "%F{red}☢  NUKE:%f Removing modules and locks in $ROOT_DIR"
     if (( ! ASSUME_YES )); then
-      print -n "Type project name '$(basename "$ROOT_DIR")' to confirm: "
+      print -n "Type project name '${ROOT_DIR:t}' to confirm: "
       read -r confirm
-      [[ "$confirm" != "$(basename "$ROOT_DIR")" ]] && { print "Aborted."; return 1; }
+      [[ "$confirm" != "${ROOT_DIR:t}" ]] && { print "Aborted."; return 1; }
     fi
     if (cd "$ROOT_DIR" && rm -rf node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock); then
       _pm_run install
@@ -291,7 +298,6 @@ case $COMMAND in
     ;;
 
   *)
-    # BLAZING FAST: Replaced the heavy, spawning Node process with an in-memory awk JSON filter (<1ms runtime cost)
     local is_script=0
     if [[ -f "$PKG_DIR/package.json" ]]; then
       if awk -F'"' -v cmd="$COMMAND" '
