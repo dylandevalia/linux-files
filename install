@@ -43,6 +43,31 @@ if ! command -v fnm &> /dev/null; then
 	curl -fsSL https://fnm.vercel.app/install | sh
 fi
 
+# lazygit
+if ! command -v lazygit &> /dev/null; then
+    echo -e "\n${GREEN}Installing lazygit...${NC}"
+
+    # Ensure Downloads directory exists using $HOME
+    DOWNLOAD_DIR="${HOME}/Downloads"
+    mkdir -p "$DOWNLOAD_DIR"
+
+    # Get latest version and architecture
+    LAZYGIT_VERSION=$(curl -s "https://api.github.com/repos/jesseduffield/lazygit/releases/latest" | \grep -Po '"tag_name": *"v\K[^"]*')
+    LAZYGIT_ARCH=$(uname -m | sed -e 's/aarch64/arm64/')
+
+    # Download to target directory
+    curl -Lo "$DOWNLOAD_DIR/lazygit.tar.gz" "https://github.com/jesseduffield/lazygit/releases/download/v${LAZYGIT_VERSION}/lazygit_${LAZYGIT_VERSION}_Linux_${LAZYGIT_ARCH}.tar.gz"
+    
+    # Extract specifically into the Downloads directory
+    tar -C "$DOWNLOAD_DIR" -xf "$DOWNLOAD_DIR/lazygit.tar.gz" lazygit
+    
+    # Install to global path
+    sudo install "$DOWNLOAD_DIR/lazygit" -D -t /usr/local/bin/
+
+    # Clean up the installation files from Downloads
+    rm "$DOWNLOAD_DIR/lazygit.tar.gz" "$DOWNLOAD_DIR/lazygit"
+fi
+
 # starship (prompt)
 #if ! command -v starship &> /dev/null; then
 #    echo -e "\n${GREEN}Installing starship...${NC}"
