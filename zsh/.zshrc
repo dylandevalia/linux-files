@@ -104,3 +104,17 @@ zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 zstyle ':fzf-tab:complete:cat:*' fzf-preview 'bat --color=always --style=header,grid $realpath'
 zstyle ':fzf-tab:complete:systemctl-*:*' fzf-preview 'systemctl status $word'
+
+# =============================================
+#   KEYBINDS
+# =============================================
+
+# Bind the Spacebar to auto-expand history shortcuts (e.g., !!, !$)
+bindkey ' ' magic-space
+
+# Ctrl + Left/Right Arrow keys to jump whole words
+bindkey '^[[1;5D' backward-word
+bindkey '^[[1;5C' forward-word
+
+# Ctrl + Backspace to delete a whole word
+bindkey '^H' backward-kill-word
