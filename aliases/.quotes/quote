@@ -1,0 +1,66 @@
+quote () {
+    SIMP='\033[1;33m' # yellow
+    FUTU='\033[1;36m' # light cyan
+    MINE='\033[1;32m' # light green
+    NC='\033[0m'      # no color
+
+    QUOTES_DIR="${HOME}/.quotes"
+
+    # All possible cow eye styles
+    eyes="bdgpstwy"
+    eye=${eyes:$(( RANDOM % ${#eyes} )):1}
+    
+    # Array of quotes and colors
+    declare -A quote_sources
+    quote_sources[1]="${FUTU}:${QUOTES_DIR}/futuramaCaptions"
+    quote_sources[2]="${MINE}:${QUOTES_DIR}/minecraftSplashes"
+    quote_sources[3]="${SIMP}:${QUOTES_DIR}/simpsonsChalkboards"
+
+    # Pick a random source
+    rnd=$(( RANDOM % ${#quote_sources[@]} + 1 ))
+    source_info=${quote_sources[$rnd]}
+
+    # Split the source_info string into color and file path
+    color=$(echo "$source_info" | cut -d ':' -f 1)
+    file=$(echo "$source_info" | cut -d ':' -f 2)
+
+    # Fallback in case the quote file doesn't exist
+    if [ ! -f "$file" ]; then
+      color="\033[1;37m" # white
+      file="${QUOTES_DIR}/error"
+    fi
+
+    # 50/50 chance to use cowsay or cowthink
+    if [ $((RANDOM % 2)) -eq 0 ]; then
+      command="cowsay"
+    else
+      command="cowthink"
+    fi
+
+    # Select a cowfile out of these selected options
+    cowfiles=("apt" "bud-frogs" "bunny" "cock" "cower" "default" "duck" "elephant" "flaming-sheep" "koala" "moofasa" "moose" "pony-smaller" "sheep" "skeleton" "three-eyes" "tux" "unipony-smaller" "www")
+    random_index=$(( RANDOM % ${#cowfiles[@]} + 1 )) # zsh use 1-based indexing...
+    cowfile="/usr/share/cowsay/cows/${cowfiles[ $random_index ]}.cow"
+
+    # Select a random quote (line) from the file
+    display_quote="$(shuf -n 1 "$file")"
+
+    # Check if cowsay or cowthink are installed
+    if ! command -v "$command" &> /dev/null; then
+      echo "Error: The command '$command' could not be found. Is it installed?" >&2
+      return 1
+    fi
+
+    # Print debug info (can be removed later)
+    # echo -E "${color}"
+    # echo "${file}"
+    # echo "${display_quote}"
+    # echo "${command}"
+    # echo "-f ${cowfile}"
+    # echo "-${eye}"
+
+    # Print the final result
+    echo -e "${color}"
+    echo "$display_quote" | "$command" -f "$cowfile" -${eye}
+    echo -e "${NC}"
+}

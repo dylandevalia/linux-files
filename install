@@ -13,10 +13,12 @@ echo -e "${STEP}Building zsh environment...${NC}"
 echo -e "${INST}Installing core dependencies...${NC}"
 sudo apt update && sudo apt install -y \
     bat \
+    cowsay \
     curl \
     fzf \
     git \
     gpg \
+    lolcat \
     ripgrep \
     stow \
     unzip \
@@ -106,6 +108,7 @@ cd ~/dotfiles
 rm -rf ~/.zshrc
 mkdir -p ~/.config
 #stow starship
+stow aliases
 stow oh-my-posh
 stow zsh
 

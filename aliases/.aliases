@@ -1,0 +1,21 @@
+source $HOME/.quotes/quote
+
+# ===============================================
+#   QUALITY OF LIFE
+# ===============================================
+
+alias q="exit"
+alias c="clear"
+alias reload="source $HOME/.zshrc"
+
+mkcd() {
+  mkdir -p "$1" && cd "$1"
+}
+
+alias bat="batcat"
+
+# ===============================================
+#   GIT
+# ===============================================
+
+alias gls="git status"
