@@ -13,6 +13,8 @@ mkcd() {
 }
 
 alias bat="batcat"
+alias lg="lazygit"
+alias ld="lazydocker"
 
 # Smart 'open' command (WSL, macOS, and Linux friendly)
 # Note: On macOS, 'open' is already a built-in system command, so we leave it alone!

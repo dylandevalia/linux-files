@@ -77,12 +77,6 @@ if ! command -v lazygit &> /dev/null; then
     rm "$DOWNLOAD_DIR/lazygit.tar.gz" "$DOWNLOAD_DIR/lazygit"
 fi
 
-# starship (prompt)
-#if ! command -v starship &> /dev/null; then
-#    echo -e "${INST}Installing starship...${NC}"
-#    curl -sS https://starship.rs/install.sh | sh
-#fi
-
 # oh my posh
 if ! command -v oh-my-posh &> /dev/null; then
     echo "📦 Installing Oh My Posh..."
@@ -107,7 +101,6 @@ cd ~/dotfiles
 # remove existing configs if exists
 rm -rf ~/.zshrc
 mkdir -p ~/.config
-#stow starship
 stow aliases
 stow git
 stow oh-my-posh

@@ -12,3 +12,4 @@
   ls = status
   pop = stash pop
   st = status
+  undo = reset --soft HEAD^
