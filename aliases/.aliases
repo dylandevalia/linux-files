@@ -14,6 +14,20 @@ mkcd() {
 
 alias bat="batcat"
 
+# Smart 'open' command (WSL, macOS, and Linux friendly)
+# Note: On macOS, 'open' is already a built-in system command, so we leave it alone!
+if grep -qEi 'microsoft|wsl' /proc/version 2>/dev/null; then
+    # WSL: Convert the Linux path to a Windows path so Explorer understands it
+    open() {
+        local target="${1:-.}"
+        # wslpath -w converts standard Linux paths to Windows-style paths on the fly
+        explorer.exe "$(wslpath -w "$target")" 2>/dev/null
+    }
+elif [[ "$OSTYPE" != "darwin"* ]]; then
+    # Native Linux: Fallback to the default system file manager (Nautilus, Dolphin, etc.)
+    alias open='xdg-open'
+fi
+
 # ===============================================
 #   GIT
 # ===============================================
