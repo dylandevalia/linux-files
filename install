@@ -109,6 +109,7 @@ rm -rf ~/.zshrc
 mkdir -p ~/.config
 #stow starship
 stow aliases
+stow git
 stow oh-my-posh
 stow zsh
 

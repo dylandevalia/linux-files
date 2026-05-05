@@ -1,0 +1,14 @@
+[init]
+  defaultBranch = main
+
+[user]
+  name = Dylan Devalia
+  email = dylandevalia@googlemail.com
+
+[alias]
+  br = branch
+  co = checkout
+  cp = cherry-pick
+  ls = status
+  pop = stash pop
+  st = status
