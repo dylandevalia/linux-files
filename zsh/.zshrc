@@ -5,12 +5,20 @@
 # ===============================================
 export PATH="${HOME}/.local/bin:$PATH"
 
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
 # Fast node manager (fnm)
 FNM_PATH="${HOME}/.local/share/fnm"
 if [ -d "$FNM_PATH" ]; then
    export PATH="$FNM_PATH:$PATH"
   eval "$(fnm env --use-on-cd --shell zsh --version-file-strategy=recursive)"
 fi
+
+# node package manager wrapper (pm)
+fpath=($HOME/.zsh/functions $fpath)
+autoload -Uz pm
 
 # ===============================================
 #   ZINIT BOOTSTRAP
@@ -97,6 +105,7 @@ setopt SHARE_HISTORY
 # Completion styling
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+zstyle ':completion:*:*:pm:*' group-order scripts subcommands
 
 # fzf-tab interactive previews
 # (Requires bat and eza to be installed)
@@ -104,6 +113,9 @@ zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 zstyle ':fzf-tab:complete:cat:*' fzf-preview 'bat --color=always --style=header,grid $realpath'
 zstyle ':fzf-tab:complete:systemctl-*:*' fzf-preview 'systemctl status $word'
+
+# bun completions
+[ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # Custom aliases (loaded from a separate file for cleanliness)
 source $HOME/.aliases

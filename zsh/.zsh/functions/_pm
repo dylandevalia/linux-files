@@ -1,0 +1,52 @@
+#compdef pm
+
+#######################################
+# Root-Aware Zsh Autocompletion
+#######################################
+
+local -a subcommands scripts
+local ROOT_DIR="$PWD"
+local ret=1
+
+# Resolve root directory using fast path expansion
+while [[ "$ROOT_DIR" != "/" && "$ROOT_DIR" != "." && -n "$ROOT_DIR" ]]; do
+  [[ -f "$ROOT_DIR/package.json" ]] && break
+  ROOT_DIR="${ROOT_DIR:h}"
+done
+
+# 1. Define subcommands with clean descriptions
+subcommands=(
+  'i:Install dependencies'
+  'add:Add package'
+  'rm:Remove package'
+  'up:Update packages'
+  'nuke:Clean & Reinstall'
+)
+
+# 2. Extract and format package.json scripts with descriptions
+if [[ -f "$ROOT_DIR/package.json" ]]; then
+  local -a raw_scripts
+  raw_scripts=( $(awk -F'"' '
+    /"scripts":/ {in_scripts=1; next}
+    in_scripts && /}/ {in_scripts=0}
+    in_scripts {if ($2 ~ /^[a-zA-Z0-9:_-]+$/) print $2}
+  ' "$ROOT_DIR/package.json" 2>/dev/null) )
+  
+  for s in $raw_scripts; do
+    scripts+=("$s:package.json script")
+  done
+fi
+
+# 3. Declare completion tags
+_tags subcommands scripts
+
+# 4. Standard Zsh tag loop
+while _tags; do
+  if _requested subcommands; then
+    _describe -t subcommands 'pm commands' subcommands && ret=0
+  fi
+  if _requested scripts; then
+    _describe -t scripts 'package.json scripts' scripts && ret=0
+  fi
+  (( ret == 0 )) && break
+done
