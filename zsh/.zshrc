@@ -1,6 +1,6 @@
 # .zshrc
 
-# zinit
+# Load zinit
 ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
 [ ! -d $ZINIT_HOME ] && mkdir -p "$(dirname $ZINIT_HOME)"
 [ ! -d $ZINIT_HOME/.git ] && git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
@@ -36,22 +36,27 @@ autoload -Uz compinit
 compinit
 
 # Instantiate tools
+## Update path
+LOCAL_BIN_PATH="${HOME}/.local/bin"
+if [ -d "$LOCAL_BIN_PATH" ]; then
+    export PATH="$LOCAL_BIN_PATH:$PATH"
+fi
+
 ## Fast node manager (fnm)
-FNM_PATH="/home/dylan/.local/share/fnm"
+FNM_PATH="${HOME}/.local/share/fnm"
 if [ -d "$FNM_PATH" ]; then
 	export PATH="$FNM_PATH:$PATH"
 	eval "$(fnm env --use-on-cd --shell zsh --version-file-strategy=recursive)"
 fi
 
 ## Starship
-eval "$(starship init zsh)"
+#eval "$(starship init zsh)"
+
+# Oh my posh
+eval "$(oh-my-posh init zsh --config ${HOME}/.config/oh-my-posh/pure.toml)"
 
 ## zoxide
-ZOXIDE_PATH="/home/dylan/.local/bin"
-if [ -d "$ZOXIDE_PATH" ]; then
-	export PATH="$ZOXIDE_PATH:$PATH"
-	eval "$(zoxide init zsh)"
-fi
+eval "$(zoxide init zsh)"
 
 # History
 HISTFILE=${HOME}/.zhistory
@@ -69,4 +74,3 @@ zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 # Atuin - synced shell history (load last)
 . "$HOME/.atuin/bin/env"
 eval "$(atuin init zsh)"
-

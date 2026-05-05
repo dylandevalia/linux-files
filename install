@@ -4,6 +4,7 @@ set -e # exit on error
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
 echo -e "${BLUE}Building zsh environment...${NC}"
@@ -43,9 +44,15 @@ if ! command -v fnm &> /dev/null; then
 fi
 
 # starship (prompt)
-if ! command -v starship &> /dev/null; then
-    echo -e "\n${GREEN}Installing starship...${NC}"
-    curl -sS https://starship.rs/install.sh | sh
+#if ! command -v starship &> /dev/null; then
+#    echo -e "\n${GREEN}Installing starship...${NC}"
+#    curl -sS https://starship.rs/install.sh | sh
+#fi
+
+# oh my posh
+if ! command -v oh-my-posh &> /dev/null; then
+    echo "📦 Installing Oh My Posh..."
+    curl -s https://ohmyposh.dev/install.sh | bash -s
 fi
 
 # tig
@@ -66,8 +73,9 @@ cd ~/dotfiles
 # remove existing configs if exists
 rm -rf ~/.zshrc
 mkdir -p ~/.config
+#stow starship
+stow oh-my-posh
 stow zsh
-stow starship
 
 # set zsh as default shell
 if [ "$SHELL" != "$(which zsh)" ]; then
@@ -75,4 +83,4 @@ if [ "$SHELL" != "$(which zsh)" ]; then
     chsh -s $(which zsh)
 fi
 
-echo -e "\n${BLUE}Installation complete! Please restart your terminal.${NC}"
+echo -e "\n${BLUE}Installation complete! Please restart your terminal or run '${CYAN}source ~/.zshrc${BLUE}'.${NC}"
