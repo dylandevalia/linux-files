@@ -2,50 +2,57 @@
 
 set -e # exit on error
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m'
+STEP='\n\033[0;34m' # blue
+INST='\n\033[0;32m' # green
+CODE='\033[0;36m'   # cyan
+NC='\033[0m'        # no color
 
-echo -e "${BLUE}Building zsh environment...${NC}"
+echo -e "${STEP}Building zsh environment...${NC}"
 
 # Base dependencies
-echo -e "\n${GREEN}Installing core dependencies...${NC}"
+echo -e "${INST}Installing core dependencies...${NC}"
 sudo apt update && sudo apt install -y \
-	bat \
-	curl \
-	fzf \
-	git \
-	gpg \
-	stow \
-	unzip \
-	zsh
+    bat \
+    curl \
+    fzf \
+    git \
+    gpg \
+    ripgrep \
+    stow \
+    unzip \
+    zsh
 
 # atuin
 if ! command -v atuin &> /dev/null; then
-	echo -e "\n${GREEN}Installing atuin...${NC}"
-	curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh
+    echo -e "${INST}Installing atuin...${NC}"
+    curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh
 fi
 
 # eza (modern ls)
 if ! command -v eza &> /dev/null; then
-	echo -e "\n${GREEN}Installing eza...${NC}"
-	sudo mkdir -p /etc/apt/keyrings
-	wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
-	echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
-	sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
-	sudo apt update && sudo apt install -y eza
+    echo -e "${INST}Installing eza...${NC}"
+    sudo mkdir -p /etc/apt/keyrings
+    wget -qO- https://raw.githubusercontent.com/eza-community/eza/main/deb.asc | sudo gpg --dearmor -o /etc/apt/keyrings/gierens.gpg
+    echo "deb [signed-by=/etc/apt/keyrings/gierens.gpg] http://deb.gierens.de stable main" | sudo tee /etc/apt/sources.list.d/gierens.list
+    sudo chmod 644 /etc/apt/keyrings/gierens.gpg /etc/apt/sources.list.d/gierens.list
+    sudo apt update && sudo apt install -y eza
 fi
 
 # Fast node manager (fnm)
 if ! command -v fnm &> /dev/null; then
-	echo -e "\n${GREEN}Installing fnm...${NC}"
-	curl -fsSL https://fnm.vercel.app/install | sh
+    echo -e "${INST}Installing fnm...${NC}"
+    curl -fsSL https://fnm.vercel.app/install | sh
+fi
+
+# lazydocker
+if ! command -v lazydocker &> /dev/null; then
+    echo -e "${INST}Installing lazydocker...${NC}"
+    curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
 fi
 
 # lazygit
 if ! command -v lazygit &> /dev/null; then
-    echo -e "\n${GREEN}Installing lazygit...${NC}"
+    echo -e "${INST}Installing lazygit...${NC}"
 
     # Ensure Downloads directory exists using $HOME
     DOWNLOAD_DIR="${HOME}/Downloads"
@@ -70,7 +77,7 @@ fi
 
 # starship (prompt)
 #if ! command -v starship &> /dev/null; then
-#    echo -e "\n${GREEN}Installing starship...${NC}"
+#    echo -e "${INST}Installing starship...${NC}"
 #    curl -sS https://starship.rs/install.sh | sh
 #fi
 
@@ -82,18 +89,18 @@ fi
 
 # tig
 if ! command -v tig &> /dev/null; then
-	echo -e "\n${GREEN}Installing tig...${NC}"
-	sudo apt update && sudo apt install -y tig
+    echo -e "${INST}Installing tig...${NC}"
+    sudo apt update && sudo apt install -y tig
 fi
 
 # zoxide (smarter cd)
 if ! command -v zoxide &> /dev/null; then
-    echo -e "\n${GREEN}Installing zoxide...${NC}"
+    echo -e "${INST}Installing zoxide...${NC}"
     curl -sS https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
 fi
 
 # Setup symlinks
-echo -e "\n${GREEN}Symlinking dotfiles...${NC}"
+echo -e "${INST}Symlinking dotfiles...${NC}"
 cd ~/dotfiles
 # remove existing configs if exists
 rm -rf ~/.zshrc
@@ -104,8 +111,8 @@ stow zsh
 
 # set zsh as default shell
 if [ "$SHELL" != "$(which zsh)" ]; then
-    echo -e "\n${GREEN}Changing default shell to Zsh...${NC}"
+    echo -e "${INST}Changing default shell to Zsh...${NC}"
     chsh -s $(which zsh)
 fi
 
-echo -e "\n${BLUE}Installation complete! Please restart your terminal or run '${CYAN}source ~/.zshrc${BLUE}'.${NC}"
+echo -e "${STEP}Installation complete! Please restart your terminal or run \n${CODE}    source ~/.zshrc${NC}${STEP}to apply changes.${NC}"

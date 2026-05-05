@@ -39,7 +39,7 @@ zstyle ':omz:plugins:eza' 'icons' yes
 # =============================================
 # Skip security check on directories (-C) for blazing WSL speed
 ZINIT[COMPINIT_OPTS]="-C"
-ZINIT[ZCOMPDUMP_PATH]="${HOME}/.zcompdump"
+ZINIT[ZCOMPDUMP_PATH]="${XDG_CACHE_HOME:-$HOME/.cache}/.zcompdump"
 
 # Load completions plugin with clean update hooks
 zinit ice blockf atpull'zinit creinstall -q .'
@@ -48,19 +48,22 @@ zinit light zsh-users/zsh-completions
 # Initialize the completion system once
 zicompinit; zicdreplay
 
+# This tells Zsh to include dotfiles ONLY during tab-completion
+_comp_options+=(globdots)
+
 # =============================================
 #   ASYNCHRONOUS PLUGINS (Zinit "Turbo Mode")
 # =============================================
 # Load plugins asynchronously 0 seconds after prompt is ready
-zinit ice wait lucid; zinit light zsh-users/zsh-autosuggestions         # Fish-like autosuggestions
-zinit ice wait lucid; zinit light zsh-users/zsh-syntax-highlighting     # Fish-like syntax highlighting
-zinit ice wait lucid; zinit light MichaelAquilina/zsh-you-should-use    # Reminds you to use existing aliases
-zinit ice wait lucid; zinit light Aloxaf/fzf-tab                        # Fuzzy completion for commands and files
+zinit ice wait lucid; zinit light Aloxaf/fzf-tab                                # Fuzzy completion for commands and files
+zinit ice wait lucid; zinit light MichaelAquilina/zsh-you-should-use            # Reminds you to use existing aliases
+zinit ice wait lucid; zinit light zdharma-continuum/fast-syntax-highlighting    # Fish-like syntax highlighting
+zinit ice wait lucid; zinit light zsh-users/zsh-autosuggestions                 # Fish-like autosuggestions
 
 # OMZ plugins (asynchronous)
-zinit ice wait lucid; zinit snippet OMZP::git       # Git status in prompt and extra aliases
 zinit ice wait lucid; zinit snippet OMZP::direnv    # direnv integration
 zinit ice wait lucid; zinit snippet OMZP::eza       # Enhanced ls replacement
+zinit ice wait lucid; zinit snippet OMZP::git       # Git status in prompt and extra aliases
 
 # =============================================
 #   SHELL TOOLS INITIALIZATION
@@ -92,5 +95,12 @@ setopt HIST_VERIFY
 setopt SHARE_HISTORY
 
 # Completion styling
-zstyle ':completion:*' matcher-list 'm:{a-z3A-Z}={A-Za-z}'
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+
+# fzf-tab interactive previews
+# (Requires bat and eza to be installed)
+zstyle ':completion:*:descriptions' format '[%d]'
+zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
+zstyle ':fzf-tab:complete:cat:*' fzf-preview 'bat --color=always --style=header,grid $realpath'
+zstyle ':fzf-tab:complete:systemctl-*:*' fzf-preview 'systemctl status $word'
