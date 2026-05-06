@@ -4,12 +4,12 @@
 # A deterministic, context-aware utility to unify npm, pnpm, yarn, and bun.
 #
 # CORE PHILOSOPHY:
-#   - Root-First: Commands like 'install' and 'nuke' always target the 
+#   - Root-First: Commands like 'install' and 'nuke' always target the
 #     detected project root, regardless of your current subdirectory.
-#   - Deterministic: Maps inconsistent manager flags (e.g., bun's -d vs 
+#   - Deterministic: Maps inconsistent manager flags (e.g., bun's -d vs
 #     npm's -D) to a single, predictable API.
 #   - CI/CD Ready: Respects CI=1 and --yes flags to bypass interactivity.
-#   - Safety-Centric: 'nuke' requires explicit folder-name confirmation 
+#   - Safety-Centric: 'nuke' requires explicit folder-name confirmation
 #     and refuses to run on system-critical directories.
 #   - Hardened: Uses zsh emulation and safe argument expansion to prevent bugs.
 #
@@ -31,43 +31,62 @@
 #   -h, --help        -> Display usage and help.
 # ===============================================
 
+# Print colours
+# - Blue: Titles and primary actions
+# - Green: commands and success messages
+# - Yellow: warnings and prompts
+# - Red: errors and destructive actions
+# - Cyan: informational context and paths
+# - Magenta: special actions
+# - Gray (8): secondary info and details
+
 emulate -L zsh
 setopt local_options err_return
 
-local PM_WRAPPER_VERSION="3.9.1"
+local PM_WRAPPER_VERSION="3.9.2"
 
 local PM="" COMMAND="" ROOT_DIR="" PKG_DIR=""
 local ARGS=()
 local ASSUME_YES=0 NO_PROMPT=0 VERBOSE=0 IS_INTERACTIVE=0
-local PARSING_FLAGS=1 SELECTION_REASON="default (npm)"
+local PARSING_FLAGS=1 SELECTION_REASON="%fdefault %F{8}(npm)%f"
 local -a ALL_LOCKS_FOUND=()
 local PM_VERSION_CACHE=""
+
+_pm_help() {
+  # Calculate border width dynamically
+  local title_text="  pm - Universal Package Manager Wrapper v$PM_WRAPPER_VERSION  "
+  local title_len=${#title_text}
+  local border_line=""
+  for ((i=0; i<title_len; i++)); do border_line+="─"; done
+
+  print -P "%F{cyan}╭${border_line}╮%f"
+  print -P "%F{cyan}│%f%F{blue}%B  pm%b%f - Universal Package Manager Wrapper %F{8}v$PM_WRAPPER_VERSION%f  %F{cyan}│%f"
+  print -P "%F{cyan}╰${border_line}╯%f\n"
+  print -P "%F{yellow}%BUSAGE%b%f"
+  print -P "  pm [options] <command> [args]\n"
+  print -P "%F{yellow}%BCOMMANDS%b%f"
+  print -P "  %F{green}i%f,  %F{green}install%f          Install all dependencies at project root"
+  print -P "  %F{green}ci%f                   Install with locked/immutable lockfile"
+  print -P "  %F{green}add%f %F{8}[-D|-P|-O]%f       Add a package %F{8}(-D dev,-P prod,-O optional)%f"
+  print -P "  %F{green}rm%f, %F{green}remove%f           Remove a package"
+  print -P "  %F{green}up%f, %F{green}update%f, %F{green}upgrade%f  Interactive update %F{8}(prefers ncu)%f"
+  print -P "  %F{green}x%f,  %F{green}exec%f             Execute a binary %F{8}(npx/dlx/bunx)%f"
+  print -P "  %F{red}nuke%f                 Wipe node_modules + lockfiles and reinstall"
+  print -P "  %F{cyan}help%f                 Shows this help message"
+  print -P "  %F{cyan}doctor%f               Show environment diagnostics\n"
+  print -P "%F{yellow}%BOPTIONS%b%f"
+  print -P "  %F{blue}-y%f, %F{blue}--yes%f            Force yes for all prompts %F{8}(auto in CI)%f"
+  print -P "      %F{blue}--no-prompt%f      Fail if interaction required"
+  print -P "  %F{blue}-v%f, %F{blue}--verbose%f        Print each command before executing"
+  print -P "  %F{blue}-V%f, %F{blue}--version%f        Print wrapper version and exit"
+  print -P "  %F{blue}--%f                   Stop parsing global flags\n"
+}
+
+# --- Helper Functions ---
 
 # 1. Environment Detection
 [[ -t 0 ]] && IS_INTERACTIVE=1
 [[ "${CI:-}" =~ ^(1|true|yes|TRUE|True)$ ]] && NO_PROMPT=1
-
-# --- Helper Functions ---
-
-_pm_help() {
-  print -P "%F{blue}pm%f - Universal Package Manager Wrapper (v$PM_WRAPPER_VERSION)"
-  print "Usage: pm [options] <command> [args]\n"
-  print "Commands:"
-  print "  i, install           Install all dependencies at project root"
-  print "  ci, install --frozen Install with locked/immutable lockfile"
-  print "  add [-D|-P|-O]       Add a package  (-D dev, -P prod, -O optional)"
-  print "  rm, remove           Remove a package"
-  print "  up, update, upgrade  Interactive update (prefers ncu)"
-  print "  x, exec              Execute a binary (npx / pnpm dlx / yarn dlx / bunx)"
-  print "  nuke                 Wipe node_modules + lockfiles and reinstall"
-  print "  doctor               Show environment diagnostics and PM selection reason"
-  print "Options:"
-  print "  -y, --yes            Force yes for all prompts (auto-set in CI / non-TTY)"
-  print "  --no-prompt          Fail immediately if interaction would be required"
-  print "  -v, --verbose        Print each command before executing"
-  print "  -V, --version        Print wrapper version and exit"
-  print "  --                   Stop parsing global flags\n"
-}
 
 # 2. Global Flag Parsing
 for arg in "$@"; do
@@ -94,12 +113,12 @@ _pm_discover() {
   while [[ "$current" != "/" ]]; do
     # Ensure package.json is readable before claiming it
     [[ -r "$current/package.json" && $found_pkg -eq 0 ]] && { PKG_DIR="$current"; found_pkg=1; }
-    
+
     if [[ -z "$PM" ]]; then
-      if [[ -f "$current/pnpm-lock.yaml" ]]; then PM="pnpm"; SELECTION_REASON="lockfile (pnpm-lock.yaml) at $current"
-      elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then PM="bun"; SELECTION_REASON="lockfile (bun.lock) at $current"
-      elif [[ -f "$current/yarn.lock" ]]; then PM="yarn"; SELECTION_REASON="lockfile (yarn.lock) at $current"
-      elif [[ -f "$current/package-lock.json" ]]; then PM="npm"; SELECTION_REASON="lockfile (package-lock.json) at $current"
+      if [[ -f "$current/pnpm-lock.yaml" ]]; then PM="pnpm"; SELECTION_REASON="%flockfile %F{8}(pnpm-lock.yaml)%f at %F{cyan}$current%f"
+      elif [[ -f "$current/bun.lockb" || -f "$current/bun.lock" ]]; then PM="bun"; SELECTION_REASON="%flockfile %F{8}(bun.lock)%f at %F{cyan}$current%f"
+      elif [[ -f "$current/yarn.lock" ]]; then PM="yarn"; SELECTION_REASON="%flockfile %F{8}(yarn.lock)%f at %F{cyan}$current%f"
+      elif [[ -f "$current/package-lock.json" ]]; then PM="npm"; SELECTION_REASON="%flockfile %F{8}(package-lock.json)%f at %F{cyan}$current%f"
       fi
       [[ -n "$PM" ]] && ROOT_DIR="$current"
     fi
@@ -110,7 +129,7 @@ _pm_discover() {
     [[ -f "$current/package-lock.json" ]] && ALL_LOCKS_FOUND+=("npm@$current")
 
     if [[ -d "$current/.git" && -z "$PM" ]]; then
-      ROOT_DIR="$current"; SELECTION_REASON="boundary (.git) at $current"; break
+      ROOT_DIR="$current"; SELECTION_REASON="%fboundary %F{8}(.git)%f at %F{cyan}$current%f"; break
     fi
     current="${current:h}"
   done
@@ -131,7 +150,7 @@ ARGS=("${ARGS[@]:1}")
 
 _pm_log() {
   if (( VERBOSE )) || [[ -t 1 && "$COMMAND" =~ ^(install|ci|nuke|add|rm|remove|uninstall)$ ]]; then
-    print -P "%F{blue}Executing:%f %F{cyan}(cd ${(qq)ROOT_DIR} && $1 ${(qq)@:2})%f"
+    print -P "%F{blue}▶%f  %F{cyan}cd%f %F{8}${ROOT_DIR}%f %F{blue}&&%f %F{green}$1%f %F{yellow}${(qq)@:2}%f"
   fi
 }
 
@@ -145,18 +164,20 @@ _pm_ensure() {
   command -v "$bin" &>/dev/null && return 0
 
   if (( $# == 0 )); then
-    print -P -u2 "%F{red}Error:%f '$bin' is not installed. Please install it manually."
+    print -P -u2 "%F{red}✗ Error:%f %F{yellow}$bin%f is not installed. Please install it manually."
     return 1
   fi
 
   if (( ASSUME_YES )); then
+    print -P "%F{blue}Installing%f %F{yellow}$bin%f%F{8}...%f"
     _pm_log "bootstrap" "$@"
     "$@" || return 1
   elif (( NO_PROMPT )) || (( ! IS_INTERACTIVE )); then
-    print -P -u2 "%F{red}Error:%f '$bin' missing. Manual install required (or use --yes)."
+    print -P -u2 "%F{red}✗ Error:%f %F{yellow}$bin%f missing. Manual install required (or use --yes)."
     return 1
   else
-    read -q "choice?Install $bin now? (y/n) " || { print; return 1; }
+    print -P "%F{yellow}Install%f %F{cyan}$bin%f %F{yellow}now?%f %F{8}(y/n)%f "
+    read -q "choice" || { print; return 1; }
     print; "$@"
   fi
 }
@@ -273,32 +294,55 @@ case $COMMAND in
     local slashes="${ROOT_DIR//[^\/]}"
     depth="${#slashes}"
 
-    [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$home_real" || $depth -lt 3 ]] && { print -P -u2 "%F{red}Error:%f Root too shallow: $ROOT_DIR"; return 1; }
-    [[ ! -f "$ROOT_DIR/package.json" ]] && { print -P -u2 "%F{red}Error:%f No package.json found."; return 1; }
+    [[ "$ROOT_DIR" == "/" || "$ROOT_DIR" == "$home_real" || $depth -lt 3 ]] && { print -P -u2 "%F{red}✗ Error:%f Root too shallow: $ROOT_DIR"; return 1; }
+    [[ ! -f "$ROOT_DIR/package.json" ]] && { print -P -u2 "%F{red}✗ Error:%f No package.json found."; return 1; }
 
-    print -P "%F{red}☢  NUKE:%f Removing modules and locks in $ROOT_DIR"
+    print -P "\n%F{red}%B☢  NUKE MODE%b%f"
+    print -P "%F{yellow}This will delete:%f"
+    print -P "  %F{8}•%f node_modules/"
+    print -P "  %F{8}•%f All lockfiles\n"
+    print -P "%F{blue}Target:%f $ROOT_DIR\n"
     if (( ! ASSUME_YES )); then
-      print -n "Type project name '${ROOT_DIR:t}' to confirm: "
+      print -P "%F{yellow}Type project name%f %F{cyan}'${ROOT_DIR:t}'%f %F{yellow}to confirm:%f "
       read -r confirm
-      [[ "$confirm" != "${ROOT_DIR:t}" ]] && { print "Aborted."; return 1; }
+      [[ "$confirm" != "${ROOT_DIR:t}" ]] && { print -P "%F{yellow}✓ Aborted%f"; return 1; }
     fi
+    print -P "%F{red}Nuking...%f"
     if (cd "$ROOT_DIR" && rm -rf node_modules package-lock.json yarn.lock pnpm-lock.yaml bun.lockb bun.lock); then
+      print -P "%F{green}✓ Deleted%f\n"
       _pm_run install
     else
-      print -P -u2 "%F{red}Error:%f Failed to delete files. Check permissions."
+      print -P -u2 "%F{red}✗ Error:%f Failed to delete files. Check permissions."
       return 1
     fi ;;
 
   doctor)
-    print -P "%F{blue}--- PM DOCTOR (v$PM_WRAPPER_VERSION) ---%f"
-    print "Environment:  Node $(node -v 2>/dev/null || print 'missing'), PM: $PM ($(_pm_get_version))"
-    print "Context:      Root: $ROOT_DIR"
-    print "              Reason: $SELECTION_REASON"
-    [[ ${#ALL_LOCKS_FOUND[@]} -gt 1 ]] && print -P "%F{yellow}⚠ WARNING:%f Multiple lockfiles: ${ALL_LOCKS_FOUND[*]}"
+    # Calculate border width dynamically
+    local title_text="  Package Manager Doctor v$PM_WRAPPER_VERSION  "
+    local title_len=${#title_text}
+    local border_line=""
+    for ((i=0; i<title_len; i++)); do border_line+="─"; done
+
+    print -P "\n%F{cyan}╭${border_line}╮%f"
+    print -P "%F{cyan}│%f  %F{blue}%BPackage Manager Doctor%b%f %F{8}v$PM_WRAPPER_VERSION%f  %F{cyan}│%f"
+    print -P "%F{cyan}╰${border_line}╯%f\n"
+    print -P "%F{yellow}Environment%f"
+    print -P "  Node:    %F{cyan}$(node -v 2>/dev/null || print '%F{red}missing%f')%f"
+    print -P "  Manager: %F{cyan}$PM%f %F{8}($(_pm_get_version))%f\n"
+    print -P "%F{yellow}Context%f"
+    print -P "  Root:   %F{cyan}$ROOT_DIR%f"
+    print -P "  Reason: $SELECTION_REASON%f\n"
+    if [[ ${#ALL_LOCKS_FOUND[@]} -gt 1 ]]; then
+      print -P "%F{red}⚠  WARNING:%f Multiple lockfiles detected:"
+      for lock in "${ALL_LOCKS_FOUND[@]}"; do
+        print -P "  %F{yellow}•%f ${lock}"
+      done
+    fi
+    print
     ;;
 
   *)
-        local is_script=0
+    local is_script=0
     if [[ -f "$PKG_DIR/package.json" ]]; then
       # 1. Prefer Node.js for 100% accurate JSON parsing
       if command -v node >/dev/null 2>&1; then
@@ -315,7 +359,7 @@ case $COMMAND in
     fi
 
     if [[ $is_script -eq 1 ]]; then
-      echo -e "🚀 Script: $COMMAND"
+      print -P "%F{magenta}▶%f  %F{blue}Script:%f %F{cyan}$COMMAND%f"
       if [[ "$PM" =~ ^(npm|pnpm)$ ]]; then
         _pm_run run "$COMMAND" "${ARGS[@]}"
       else
